@@ -1,0 +1,11 @@
+schema_version: 1
+repository: https://github.com/kohya-ss/sd-scripts.git
+commit: 37a1cbbc5725ed2a3575506e7bd2001c9908ac92
+path: .local/runtime/sd-scripts
+environment: letsaigc-train-sdxl
+python: "3.10"
+pytorch:
+  index_url: https://download.pytorch.org/whl/cu124
+  packages:
+    - torch==2.6.0
+    - torchvision==0.21.0

@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "letsaigc"
+version = "0.1.0"
+description = "Local-first harness for reproducible 2D game asset AIGC"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = {text = "Proprietary project harness; third-party model licenses vary"}
+dependencies = [
+  "httpx>=0.28,<1",
+  "jsonschema>=4.25,<5",
+  "psutil>=7.0,<8",
+  "pydantic>=2.11,<3",
+  "PyYAML>=6.0,<7",
+  "typer>=0.16,<1",
+  "websockets>=15,<17",
+]
+
+[project.optional-dependencies]
+tracking = ["dvc>=3.60,<4", "mlflow>=3.3,<4"]
+dev = ["pytest>=8.4,<10", "pytest-cov>=6,<8", "ruff>=0.12,<1"]
+
+[project.scripts]
+letsaigc = "letsaigc.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/letsaigc"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+markers = ["runtime: requires a deployed local runtime", "gpu: requires NVIDIA GPU"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]

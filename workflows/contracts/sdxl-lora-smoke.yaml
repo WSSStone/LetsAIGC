@@ -1,0 +1,30 @@
+schema_version: 1
+id: sdxl-lora-smoke
+version: 1.0.0
+description: Fixed-seed SDXL smoke workflow that proves the locally trained UNet-only LoRA can be loaded
+ui_workflow: workflows/ui/sdxl-lora-smoke.json
+api_workflow: workflows/api/sdxl-lora-smoke.json
+input_schema:
+  type: object
+  additionalProperties: false
+  required: [prompt, negative_prompt, seed, width, height, steps, cfg, lora_strength]
+  properties:
+    prompt: {type: string, minLength: 1, maxLength: 2000}
+    negative_prompt: {type: string, maxLength: 2000}
+    seed: {type: integer, minimum: 0, maximum: 18446744073709551615}
+    width: {type: integer, minimum: 512, maximum: 1024, multipleOf: 64}
+    height: {type: integer, minimum: 512, maximum: 1024, multipleOf: 64}
+    steps: {type: integer, minimum: 1, maximum: 40}
+    cfg: {type: number, minimum: 1, maximum: 20}
+    lora_strength: {type: number, minimum: -2, maximum: 2}
+output_schema: {type: array, items: {type: string}}
+bindings: {prompt: /6/inputs/text, negative_prompt: /7/inputs/text, seed: /3/inputs/seed, width: /5/inputs/width, height: /5/inputs/height, steps: /3/inputs/steps, cfg: /3/inputs/cfg, lora_strength: /10/inputs/strength_model}
+defaults: {prompt: "gameasset, stylized fantasy game asset, polished icon", negative_prompt: "text, watermark, blurry, photograph", seed: 20260831, width: 512, height: 512, steps: 20, cfg: 6.5, lora_strength: 1.0}
+models: [sdxl-base-1.0]
+adapters:
+  - path: smoke-rank8.safetensors
+    sha256: c980385a68c7a617aa41f97e81e573bc73e96ff683597731394eeed1dc0b7161
+    record: registry/adapters/sdxl-lora-smoke-smoke-rank8.json
+nodes: [CheckpointLoaderSimple, LoraLoader, EmptyLatentImage, CLIPTextEncode, KSampler, VAEDecode, SaveImage]
+resource_budget: {vram_gib: 10, ram_gib: 24, free_disk_gib: 8, timeout_seconds: 600}
+export_lanes: [production]

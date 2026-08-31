@@ -1,0 +1,6 @@
+outs:
+- md5: 2290d049c0dce182cb50c05076554271.dir
+  size: 5052840
+  nfiles: 8
+  hash: md5
+  path: sdxl-lora-smoke

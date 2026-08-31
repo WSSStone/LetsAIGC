@@ -1,0 +1,16 @@
+* text=auto
+
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.dvcignore text eol=lf
+.env.example text eol=lf
+.dvc/config text eol=lf
+.dvc/.gitignore text eol=lf
+*.py text eol=lf
+*.md text eol=lf whitespace=-blank-at-eol,-blank-at-eof
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.dvc text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=crlf

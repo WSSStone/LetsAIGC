@@ -1,0 +1,16 @@
+schema_version: 1
+repository: https://github.com/Comfy-Org/ComfyUI.git
+tag: v0.34.2
+commit: 169fcf35a2fc163fec31338b816503ddac0d3fcf
+path: .local/runtime/ComfyUI
+environment: letsaigc-comfy
+python: "3.12"
+pytorch:
+  index_url: https://download.pytorch.org/whl/cu130
+  packages:
+    - torch==2.9.1
+    - torchvision==0.24.1
+    - torchaudio==2.9.1
+listen: 127.0.0.1
+port: 8188
+custom_nodes: []

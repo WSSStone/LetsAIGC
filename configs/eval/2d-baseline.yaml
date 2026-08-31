@@ -1,0 +1,15 @@
+schema_version: 1
+id: 2d-baseline
+workflow: sdxl-smoke
+fixed_seed: 20260831
+cases:
+  - id: character
+    prompt: "full-body 2D game character concept, readable silhouette, neutral background"
+  - id: prop-icon
+    prompt: "single fantasy inventory potion icon, centered, transparent-background style"
+  - id: material-texture
+    prompt: "seamless hand-painted mossy stone game texture, orthographic, even lighting"
+  - id: style-consistency
+    prompt: "three matching fantasy inventory keys as a coherent 2D game asset set"
+metrics: [elapsed_seconds, peak_vram_mib, output_sha256]
+human_review: [technical_defects, silhouette_readability, style_fit, usability]

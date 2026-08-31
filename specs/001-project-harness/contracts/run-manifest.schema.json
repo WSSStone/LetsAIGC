@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://letsaigc.local/schemas/run-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "kind", "status", "created_at", "source", "parameters", "environment", "outputs", "governance"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "run_id": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["inference", "evaluation", "training"]},
+    "status": {"enum": ["created", "validated", "queued", "running", "succeeded", "failed", "cancelled"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "source": {"type": "object"},
+    "parameters": {"type": "object"},
+    "environment": {"type": "object"},
+    "outputs": {"type": "array", "items": {"type": "object", "required": ["path", "sha256"], "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}}},
+    "tracking": {"type": "object"},
+    "governance": {"type": "object", "required": ["license_lanes", "validations", "human_approved"], "properties": {"license_lanes": {"type": "array", "items": {"enum": ["production", "conditional", "restricted"]}}, "validations": {"type": "object", "additionalProperties": {"type": "boolean"}}, "human_approved": {"type": "boolean"}}},
+    "error": {"type": ["object", "null"]}
+  }
+}

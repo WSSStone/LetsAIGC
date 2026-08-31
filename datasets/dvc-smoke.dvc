@@ -1,0 +1,6 @@
+outs:
+- md5: 6b04f315ab8099b56f15b55b8c477a43.dir
+  size: 63
+  nfiles: 1
+  hash: md5
+  path: dvc-smoke

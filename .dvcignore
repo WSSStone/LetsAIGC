@@ -1,0 +1,6 @@
+# DVC should not scan generated runtimes, caches or local experiment state.
+.local/runtime
+.local/mlflow
+.local/dvc-remote
+.doc
+.codegraph

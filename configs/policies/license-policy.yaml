@@ -1,0 +1,26 @@
+schema_version: 1
+safe_weight_extensions: [.safetensors]
+deny_unknown_license: true
+lanes:
+  production:
+    allow_inference: true
+    allow_training: true
+    allow_production_export: true
+    requires_attestation: false
+  conditional:
+    allow_inference: true
+    allow_training: false
+    allow_production_export: false
+    requires_attestation: true
+  restricted:
+    allow_inference: true
+    allow_training: false
+    allow_production_export: false
+    requires_attestation: true
+production_export:
+  require_status: succeeded
+  require_hashes: true
+  require_contract_validation: true
+  require_provenance: true
+  require_human_approval: true
+  allowed_lanes: [production]

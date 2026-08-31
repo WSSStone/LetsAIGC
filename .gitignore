@@ -1,0 +1,74 @@
+# Local thinking and generated indexes
+.doc/
+.codegraph/
+
+# Local runtimes, models, outputs, caches, and state
+.local/
+/models/
+/output/
+/outputs/
+/input/
+/temp/
+/cache/
+/mlruns/
+mlflow.db
+*.mlflow.db
+
+# Model and training artifacts (use manifests and DVC pointers instead)
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+*.gguf
+*.npz
+
+# DVC local state
+.dvc/cache/
+.dvc/tmp/
+.dvc/config.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+
+# Conda and notebook state
+.conda/
+.ipynb_checkpoints/
+
+# Node and frontend caches
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.tmp
+*.log
