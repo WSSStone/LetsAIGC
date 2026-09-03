@@ -12,8 +12,8 @@
 - T05—T08：Client/Worker、Pydantic 转换、有限 Activity 重试、批准/拒绝/取消/对账、模拟修订、Continue-As-New 和状态投影。
 - T06：保留 ComfyBackend.execute，抽出无生成提交的 prepare；独立 submit / inspect / collect / cancel 适配，恢复队列/历史中的原请求。
 - T09—T10：兼容 RunManifest、父子操作关联、MLflow 幂等登记、pipeline/runtime CLI、操作文档。
-- T11：领域、协议、本机 Temporal 服务及进程故障验证；真实 GPU 生成须单独精确批准。
-- T12：最终回归和交付审查完成，形成独立分支上的试点候选；真实 GPU 验收门禁仍待批准。生产高可用/Cloud 与游戏 UI 工作流不在本次交付内。
+- T11：领域、协议、本机 Temporal 服务及进程故障验证完成；单次真实 GPU 验收经用户精确批准后通过。
+- T12：最终回归、真实 GPU 验收和交付审查完成，作为 UI 工作流的单机试点基线。生产高可用/Cloud 与游戏 UI 工作流不在本次交付内。
 
 没有将整个旧 AgentOrchestrator 包成重试 Activity。Comfy v1 保持单次生成和零自动修订；重型多步骤领域流程可使用公共接口追加显式 Workflow 类型。
 
@@ -33,7 +33,7 @@
 | Windows 共享故障及旧 Agent 定向回归 | 25 passed；临时错误重试成功，持续错误有界失败 |
 | 最终全量回归 | **154 passed / 1 skipped，124.48 秒**；10 项本机 Temporal 服务实验全部执行，唯一跳过项为真实 GPU 验收 |
 | 最新 ruff check . / git diff --check | 通过 |
-| 真实 GPU 生成 | 等待精确批准，尚未执行，不能标注为已通过 |
+| 真实 GPU 生成 | **1 passed / 154 deselected，19.47 秒**；获批的 SD1.5 图像生成完成，实际 0.068934 GPU 分钟、$0，预留和未确认费用均为 0 |
 
 为使用既有 MLflow 证据接口，在实现 worktree 内独立修复了 artifacts 参数遮蔽，并增加稳定逻辑标签去重。主工作区的原有修改保持原状。
 
@@ -78,7 +78,7 @@
 
 准备阶段启动了隔离的 127.0.0.1:8189 ComfyUI 0.34.2，使用独立 input/output/user/temp 目录，禁用 custom/API nodes。复用已存在的 SD1.5 权重，通过硬链接避免再下载或复制 4.3 GB 文件；权重 SHA-256 已通过现有模型校验。硬件实际报告为 RTX 3080 10 GB，PyTorch 2.9.1+cu130。
 
-已完成原生图编译和 /object_info 合同检查，未提交 GPU 工作：
+已完成原生图编译、/object_info 合同检查及获批的单次 GPU 工作：
 
 - 新 task ID：pipeline-9c96182b478d9dc09827dc1f8453f865。
 - 完整批准指纹：df9428d7449b84eea31e8519019109a4efddeb2b8eec23781733bc4d6f3eafba。
@@ -87,17 +87,19 @@
 - 冻结文件：.local/temporal-gpu-validation/approved-plan-required.json。
 - 编译图 SHA-256：396d05523ab134c02edcc747b0ddbba7062fa1a9cebaf270d51343383ae1b606。
 
-AGENTS.md 要求 GPU 生成使用精确批准指纹及单次/总预算，因此已向用户请求此具体验收的批准。批准之前，GPU 标记测试保持跳过。单张真实生成通过后，也不能将取消、超时、提供方历史丢失等所有真实故障标记为已验证。
+用户已明确批准上述精确计划，随后执行 GPU 标记测试并通过。单张真实生成通过不能将取消、超时、提供方历史丢失等所有真实故障标记为已验证；这些场景的已有模拟/协议证据仍分别记录。
 
 ComfyUI 首次隔离启动触发其既有数据库迁移逻辑：原 user/comfyui.db 被改名为 .bak 并复制到隔离 user 目录。已从该备份恢复原路径；保留备份，未删除原数据。
 
-交付收尾时已核对隔离 ComfyUI 的进程参数及空队列，关闭该 8189 服务。集成测试使用的 Temporal 服务也已退出；本地数据库、素材和批准计划均保留。未提交生成，未产生 GPU operation 或费用。获批后可按以下参数重启同一隔离实例，再执行 GPU 标记测试：
+第一轮收尾时关闭了空闲隔离 ComfyUI；获批后重启该 8189 服务，完成唯一一次生成。测试 Temporal 服务已退出；本地数据库、素材和批准计划保留。以下为同一隔离实例的启动方式：
 
 ~~~powershell
 mamba run -n letsaigc-comfy python .local/runtime/ComfyUI/main.py --listen 127.0.0.1 --port 8189 --models-directory .local/models --output-directory .local/output --input-directory .local/input --user-directory .local/comfy-user --temp-directory .local/comfy-temp --disable-all-custom-nodes --disable-api-nodes --disable-auto-launch
 ~~~
 
-在实现 worktree 中执行上述命令；核心 Worker/验收进程另设 COMFY_URL=http://127.0.0.1:8189。重启不能替代 GPU 批准；恢复前先检查原计划和账本。
+在实现 worktree 中执行上述命令；核心 Worker/验收进程另设 COMFY_URL=http://127.0.0.1:8189。原验收任务已完成，不得以原批准再次生成；新实验须建立新的具体计划。
+
+真实输出 SHA-256：d16e6621c150308811ae9be68e5aefd70f87822ae1f4303e272aac9dff77cc87。Temporal Run ID：01a067b1-91a2-751b-a24c-b62cd9b72c1e。operation 数为 1，费用已结算，输出为一张 512×512 PNG。
 
 ## 证据位置与后续界限
 
@@ -106,9 +108,10 @@ mamba run -n letsaigc-comfy python .local/runtime/ComfyUI/main.py --listen 127.0
 - 实现 worktree 的 .local/temporal-validation-release.xml：定位 Windows 共享冲突的中间回归。
 - 实现 worktree 的 .local/temporal-validation-verified.xml：最终回归结果。
 - C:\Programs\LetsAIGC\.local\tv-0903-verified：最终独立测试的数据库、提供方计数、素材和代表性历史。
-- 实现 worktree 的 .local/temporal-gpu-validation：真实后端批准计划与之后的 GPU 历史/结果（获批执行后才存在）。
+- 实现 worktree 的 .local/temporal-gpu-validation：真实后端批准计划、gpu-history.json、gpu-result.json、gpu-usage.json 及内容寻址产物。
+- 实现 worktree 的 .local/temporal-gpu-acceptance.xml：实际 GPU 测试报告。
 - configs/runtime/temporal.lock.yaml：SDK/CLI/Server 版本与官方下载哈希。
 
 当前是单机本地磁盘、可信 CLI、受控 GPU 的试点架构。跨机器账本、服务认证、高可用、自动 Worker Versioning 路由、硬件级硬预算、无人处理的历史丢失对账及真实故障演练仍需要后续部署/验收。不要将此开发服务当作生产 HA 服务。
 
-代码尚未合入 master。游戏 UI 工作可阅读这些公共契约，但计划中的 M-T4 全部验收条件尚未满足；真实 GPU 验收与合入必须保留为明确的交接门禁。
+单机试点代码与现有验收组均已通过，随后按 UI 实施计划合入 master，作为新 UI 分支的基线。生产部署和完整真实故障演练仍遵循上述边界。
