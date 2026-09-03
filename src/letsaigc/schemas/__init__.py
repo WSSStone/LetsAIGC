@@ -54,8 +54,15 @@ from .models import (
     VideoJobReference,
     WorkflowContract,
 )
+from .pipeline import ApprovalEnvelope, ArtifactRef, OperationRecord, PipelinePlan, PipelineRun, StepRun
 
 __all__ = [
+    "ApprovalEnvelope",
+    "ArtifactRef",
+    "OperationRecord",
+    "PipelinePlan",
+    "PipelineRun",
+    "StepRun",
     "AgentCandidate",
     "AgentEvaluation",
     "AgentIteration",

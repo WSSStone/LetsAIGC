@@ -1,0 +1,22 @@
+schema_version: 1
+python: "3.12"
+sdk:
+  package: temporalio
+  version: 1.32.0
+  wheel: temporalio-1.32.0-cp310-abi3-win_amd64.whl
+  sha256: 158386bcd9a6dce1ab63d732fc967c5a5830e15c3012ffaa4b8772bdac099e0f
+  source: https://pypi.org/project/temporalio/1.32.0/
+cli:
+  version: 1.8.3
+  platform: windows_amd64
+  url: https://github.com/temporalio/cli/releases/download/v1.8.3/temporal_cli_1.8.3_windows_amd64.zip
+  archive_sha256: b29a65ba26ae519dc1f3c450addbf77e4676899530ac4061f851427da8d37b05
+  executable_sha256: b761a3a594d25a56dab01d116e913d2a08ffaf712cf2897b8aa93c75112b6e0e
+  server_version: 1.31.2
+  ui_version: 2.50.1
+  executable: .local/runtime/temporal/temporal.exe
+verification:
+  platform: Windows-amd64
+  python_version: 3.12.14
+  cli_checksum_verified: true
+  production_qualified: false

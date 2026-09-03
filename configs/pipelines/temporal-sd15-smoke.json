@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "task_id": "temporal-sd15-validation",
+  "session_id": "temporal-validation",
+  "intent": "text_to_image",
+  "user_intent": "Temporal integration validation: a simple red square game icon on a white background.",
+  "backend": "comfy",
+  "model": "sd15-fp16",
+  "recipe": "sd15-t2i",
+  "parameters": {
+    "prompt": "a simple red square game icon on a white background",
+    "negative_prompt": "text, watermark",
+    "seed": 20260903,
+    "width": 512,
+    "height": 512,
+    "steps": 2,
+    "cfg": 3
+  },
+  "acceptance_criteria": [
+    "One decodable 512x512 image with complete provenance"
+  ],
+  "estimated_iteration_cost_usd": 0,
+  "estimated_iteration_gpu_minutes": 0.2,
+  "envelope": {
+    "backend": "comfy",
+    "model": "sd15-fp16",
+    "recipe": "sd15-t2i",
+    "max_width": 512,
+    "max_height": 512,
+    "max_steps": 2,
+    "allowed_tools": [
+      "comfy.generate"
+    ],
+    "mutable_parameters": [],
+    "budget": {
+      "max_total_cost_usd": 0,
+      "max_iteration_cost_usd": 0,
+      "max_total_gpu_minutes": 2,
+      "max_iteration_gpu_minutes": 2,
+      "max_revisions": 0
+    }
+  }
+}

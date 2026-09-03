@@ -1,0 +1,9 @@
+schema_version: 1
+address: "127.0.0.1:7233"
+namespace: default
+task_queue: letsaigc-pipelines-v1
+max_concurrent_activities: 4
+activity_timeout_seconds: 600
+poll_seconds: 2
+observations_per_run: 100
+mlflow_enabled: false

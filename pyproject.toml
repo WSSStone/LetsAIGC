@@ -23,6 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+temporal = ["temporalio==1.32.0"]
 tracking = ["dvc>=3.60,<4", "mlflow>=3.3,<4"]
 dev = ["pytest>=8.4,<10", "pytest-cov>=6,<8", "ruff>=0.12,<1"]
 
@@ -33,6 +34,7 @@ letsaigc = "letsaigc.cli:main"
 packages = ["src/letsaigc"]
 
 [tool.pytest.ini_options]
+pythonpath = ["src"]
 addopts = "-ra --strict-markers"
 testpaths = ["tests"]
 markers = ["runtime: requires a deployed local runtime", "gpu: requires NVIDIA GPU"]

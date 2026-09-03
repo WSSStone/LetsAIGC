@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from ..errors import PolicyError, ValidationError
+from ..files import replace_file
 from ..paths import local_path
 from ..schemas import AgentSession, AgentTaskRecord
 
@@ -81,4 +82,4 @@ class AgentStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
         temporary.write_text(content, encoding="utf-8")
-        temporary.replace(path)
+        replace_file(temporary, path)

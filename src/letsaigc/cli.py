@@ -21,6 +21,7 @@ from .exporter import export_run
 from .media import import_video
 from .models import ModelManager
 from .paths import find_repo_root
+from .pipelines.cli import pipeline_app, runtime_app
 from .runpack import build_job_runpack, build_runpack, ingest_job_result
 from .schemas import BackendName, LicenseLane
 from .sprites import build_sprite_sequence, validate_sprite_run
@@ -30,6 +31,8 @@ from .training import run_sdxl_lora
 from .workflows import WorkflowRunner
 
 app = typer.Typer(no_args_is_help=True, help="Agent-driven game asset generation workbench")
+app.add_typer(pipeline_app, name="pipeline")
+app.add_typer(runtime_app, name="runtime")
 agent_app = typer.Typer(no_args_is_help=True, help="Plan, approve, execute, and inspect Agent tasks")
 models_app = typer.Typer(no_args_is_help=True)
 comfy_app = typer.Typer(no_args_is_help=True)

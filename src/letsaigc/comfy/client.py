@@ -29,9 +29,7 @@ class ComfyClient:
             response.raise_for_status()
             return response.json()
         except (httpx.HTTPError, ValueError) as exc:
-            raise RuntimeExecutionError(
-                f"ComfyUI GET failed: {path}", details={"error": str(exc)}
-            ) from exc
+            raise RuntimeExecutionError(f"ComfyUI GET failed: {path}", details={"error": str(exc)}) from exc
 
     def system_stats(self) -> dict:
         return self._get("/system_stats")
@@ -45,11 +43,15 @@ class ComfyClient:
     def history(self, prompt_id: str) -> dict:
         return self._get(f"/history/{prompt_id}")
 
-    def submit(self, prompt: dict) -> str:
+    def submit(self, prompt: dict, *, extra_data: dict | None = None) -> str:
         try:
             response = httpx.post(
                 f"{self.base_url}/prompt",
-                json={"prompt": prompt, "client_id": self.client_id},
+                json={
+                    "prompt": prompt,
+                    "client_id": self.client_id,
+                    **({"extra_data": extra_data} if extra_data else {}),
+                },
                 timeout=self.timeout,
             )
             if response.is_error:
@@ -62,13 +64,9 @@ class ComfyClient:
         except RuntimeExecutionError:
             raise
         except (httpx.HTTPError, ValueError) as exc:
-            raise RuntimeExecutionError(
-                "ComfyUI prompt submission failed", details={"error": str(exc)}
-            ) from exc
+            raise RuntimeExecutionError("ComfyUI prompt submission failed", details={"error": str(exc)}) from exc
         if payload.get("node_errors"):
-            raise RuntimeExecutionError(
-                "ComfyUI rejected workflow nodes", details=payload["node_errors"]
-            )
+            raise RuntimeExecutionError("ComfyUI rejected workflow nodes", details=payload["node_errors"])
         prompt_id = payload.get("prompt_id")
         if not prompt_id:
             raise RuntimeExecutionError("ComfyUI response did not contain prompt_id")
@@ -91,9 +89,7 @@ class ComfyClient:
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError, OSError) as exc:
-            raise RuntimeExecutionError(
-                "ComfyUI image upload failed", details={"error": str(exc)}
-            ) from exc
+            raise RuntimeExecutionError("ComfyUI image upload failed", details={"error": str(exc)}) from exc
         name = payload.get("name")
         returned_subfolder = str(payload.get("subfolder", normalized)).replace("\\", "/").strip("/")
         name_path = Path(str(name))
@@ -149,6 +145,4 @@ class ComfyClient:
             with connect(url, open_timeout=self.timeout, close_timeout=2):
                 return {"url": url, "connected": True}
         except OSError as exc:
-            raise RuntimeExecutionError(
-                "ComfyUI WebSocket connection failed", details={"error": str(exc)}
-            ) from exc
+            raise RuntimeExecutionError("ComfyUI WebSocket connection failed", details={"error": str(exc)}) from exc

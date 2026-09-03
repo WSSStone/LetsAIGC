@@ -40,6 +40,33 @@ def load_recipe(recipe_id: str) -> WorkflowRecipe:
     return load_typed(path, WorkflowRecipe)
 
 
+def normalize_model_paths(graph: dict, object_info: dict | None) -> None:
+    """Use the server's enum spelling for the same approved relative model path."""
+    if object_info is None:
+        return
+    fields = {
+        "CheckpointLoaderSimple": "ckpt_name",
+        "UNETLoader": "unet_name",
+        "CLIPLoader": "clip_name",
+        "VAELoader": "vae_name",
+    }
+    for node in graph.values():
+        kind = node.get("class_type")
+        field = fields.get(kind)
+        value = node.get("inputs", {}).get(field)
+        specification = object_info.get(kind, {}).get("input", {}).get("required", {}).get(field, [])
+        choices = specification[0] if specification and isinstance(specification[0], list) else []
+        if not isinstance(value, str) or value in choices:
+            continue
+        matches = [
+            choice
+            for choice in choices
+            if isinstance(choice, str) and choice.replace("\\", "/") == value.replace("\\", "/")
+        ]
+        if len(matches) == 1:
+            node["inputs"][field] = matches[0]
+
+
 class WorkflowCompiler:
     def __init__(self, store: AgentStore | None = None) -> None:
         self.store = store or AgentStore()
@@ -79,6 +106,7 @@ class WorkflowCompiler:
             raise ValidationError("Wan frame count must be 4n+1")
         self._apply_parameters(graph, recipe, plan.parameters)
         self._scope_outputs(graph, plan)
+        normalize_model_paths(graph, object_info)
         self._validate_nodes(graph, recipe, object_info)
         digest = hashlib.sha256(canonical_json(graph)).hexdigest()
         destination = self.store.compiled_dir(plan.session_id, plan.task_id) / f"{digest}.json"
@@ -226,12 +254,7 @@ class WorkflowCompiler:
             if not isinstance(specification, (list, tuple)) or not specification:
                 continue
             expected = specification[0]
-            if (
-                isinstance(value, list)
-                and len(value) == 2
-                and isinstance(value[0], str)
-                and isinstance(value[1], int)
-            ):
+            if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str) and isinstance(value[1], int):
                 source = graph.get(value[0])
                 if source is None:
                     raise ReadinessError(f"Compiled graph input {name} references a missing node")

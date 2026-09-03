@@ -28,7 +28,8 @@ class ComfyBackend:
         self.client = client or ComfyClient()
         self.compiler = compiler or WorkflowCompiler()
 
-    def execute(self, plan: GenerationPlan, *, iteration_id: str) -> GenerationResult:
+    def prepare(self, plan: GenerationPlan, *, iteration_id: str):
+        """Validate and compile without submitting GPU work; usable by durable callers."""
         if plan.backend != "comfy" or not plan.recipe:
             raise ValidationError("Comfy backend requires a recipe-based plan")
         recipe = load_recipe(plan.recipe)
@@ -112,6 +113,10 @@ class ComfyBackend:
             manifest.environment["media_tools"] = media_tools.as_dict()
         manifest.status = "validated"
         save_manifest(manifest)
+        return compiled, manifest, recipe
+
+    def execute(self, plan: GenerationPlan, *, iteration_id: str) -> GenerationResult:
+        compiled, manifest, recipe = self.prepare(plan, iteration_id=iteration_id)
         started = time.monotonic()
         sampler = GpuMemorySampler()
         sampler.start()
@@ -148,6 +153,7 @@ class ComfyBackend:
             return GenerationResult(
                 outputs=[Path(output.path) for output in manifest.outputs],
                 run_id=manifest.run_id,
+                request_id=prompt_id,
                 actual_gpu_minutes=elapsed_minutes,
                 usage={"elapsed_gpu_minutes": elapsed_minutes},
                 request_hash=compiled.graph_sha256,

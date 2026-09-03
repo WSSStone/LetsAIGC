@@ -37,19 +37,34 @@ def log_manifest(
     artifacts: list[Path] | None = None,
     parent_run_id: str | None = None,
     existing_run_id: str | None = None,
+    idempotency_key: str | None = None,
 ) -> str | None:
     try:
         import mlflow
     except ImportError:
         return None
     root = find_repo_root()
-    artifacts = artifact_root()
+    artifact_dir = artifact_root()
     mlflow.set_tracking_uri(tracking_uri())
     experiment_name = "letsaigc-local"
     if mlflow.get_experiment_by_name(experiment_name) is None:
-        mlflow.create_experiment(experiment_name, artifact_location=artifacts.resolve().as_uri())
+        mlflow.create_experiment(experiment_name, artifact_location=artifact_dir.resolve().as_uri())
     mlflow.set_experiment(experiment_name)
     tags = {"repository": str(root)}
+    if idempotency_key:
+        import hashlib
+        key = hashlib.sha256(idempotency_key.encode()).hexdigest()
+        tags["letsaigc.logical_run"] = key
+        experiment = mlflow.get_experiment_by_name(experiment_name)
+        matches = mlflow.search_runs(
+            experiment_ids=[experiment.experiment_id],
+            filter_string=f"tags.`letsaigc.logical_run` = '{key}'",
+            output_format="list",
+        )
+        if len(matches) > 1:
+            raise RuntimeError("Duplicate logical MLflow runs require reconciliation")
+        if matches:
+            existing_run_id = matches[0].info.run_id
     if parent_run_id:
         tags["mlflow.parentRunId"] = parent_run_id
     start_arguments: dict[str, Any]
