@@ -1,5 +1,12 @@
 # Implementation Plan: Video Runtime and Models
 
+> **Historical scope note (2026-09-03):** This plan records the expert video pipeline
+> and the additive RunManifest 1.1 design. Its "harness" terminology predates the
+> Agent-first product boundary; the current workbench uses compatible RunManifest
+> 1.2 evidence. See the [current architecture](../../docs/agent-first-architecture.md)
+> and [Agent guide](../../docs/agent-quickstart.md). Original design and acceptance
+> evidence remain historical, not proof of Agent-path live acceptance.
+
 **Feature ID**: `005-video-runtime-models` | **Date**: 2026-08-31 | **Spec**: [spec.md](spec.md)
 
 ## Summary

@@ -6,10 +6,11 @@
 
 ## User Scenarios & Testing
 
-### User Story 1 - Plan Before Spending (Priority: P1)
+### User Story 1 - Plan Before Media Generation (Priority: P1)
 
 As an asset creator, I can describe an intent and receive a concrete generation
-plan, immutable approval fingerprint, and worst-case budget without executing it.
+plan, immutable approval fingerprint, and worst-case budget without generating media.
+Planning itself calls Responses within the supplied budget and may incur API cost.
 
 **Independent Test**: Planning with fake capabilities creates an `awaiting_approval`
 task and performs no generation tool call.
@@ -20,6 +21,9 @@ task and performs no generation tool call.
    backend, model, recipe, inputs, output envelope, and cost/GPU limits.
 2. **Given** JSON mode, **When** I run the combined command, **Then** it returns
    `awaiting_approval` without prompting or executing.
+3. **Given** a supplied budget, **When** planning calls Responses, **Then** it first
+   reserves `$0.03 + $0.01 per input image` within both the per-iteration and total
+   USD caps; this does not authorize media generation.
 
 ### User Story 2 - Execute Exactly What Was Approved (Priority: P2)
 
@@ -65,9 +69,14 @@ intent remains a separately approved task.
 - **FR-002**: Planning MUST end at `awaiting_approval` and MUST NOT execute generation.
 - **FR-003**: Approval MUST bind a canonical SHA-256 fingerprint to an immutable envelope.
 - **FR-004**: Every task MUST enforce per-iteration and total USD and GPU-minute budgets.
-- **FR-005**: Automatic revisions MUST be limited to `0..10`, defaulting to 10.
-- **FR-006**: Pre-approval tools MUST be read-only; post-approval tools MUST be the
-  subset declared in the approved envelope.
+- **FR-005**: Automatic revisions MUST be limited to `0..10`. The `TaskBudget` type
+  defaults to 10 when the field is omitted; the supplied `budget-local.yaml` and
+  `budget-remote-low.yaml` configurations explicitly select 3. The approved budget
+  determines the effective limit, in addition to one initial generation.
+- **FR-006**: Before approval, the orchestrator MAY resolve and stage verified inputs,
+  persist local session/task state, inspect capabilities, and call Responses within
+  the planning reserve. These controlled operations MUST NOT expose an arbitrary-write
+  Agent tool. Post-approval tools MUST be the subset declared in the approved envelope.
 - **FR-007**: The Agent MUST have no shell, arbitrary-write, model-download,
   training, human-approval, or production-export tool.
 - **FR-008**: Sessions and task records MUST persist locally and be recoverable.
@@ -94,7 +103,10 @@ intent remains a separately approved task.
 
 ### Measurable Outcomes
 
-- **SC-001**: Zero generation or paid calls occur before exact fingerprint approval.
+- **SC-001**: Zero media-generation tool calls, including paid remote media and GPU
+  generation, occur before exact fingerprint approval. Pre-approval Responses planning
+  MUST reserve `$0.03 + $0.01 per input image` within the supplied per-iteration and
+  total USD budgets and record its usage or unsettled reservation.
 - **SC-002**: 100% of stale, expanded, over-budget, or prohibited calls fail closed.
 - **SC-003**: A task survives process restart without losing its last completed state.
 - **SC-004**: No execution performs more than one initial generation plus 10 revisions.

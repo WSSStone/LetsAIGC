@@ -1,5 +1,11 @@
 # Quickstart: Video Runtime and Models
 
+> **Historical expert entrypoint (2026-09-03):** These direct video/runpack commands
+> remain available. Complete the core/ComfyUI setup in the
+> [Agent guide](../../docs/agent-quickstart.md) before using the local video path.
+> The validation record below covers the expert pipeline on 2026-08-31; Agent
+> generation, approval, and critique have separate live acceptance tasks.
+
 ```powershell
 # User-managed system tools must already be on PATH.
 ffmpeg -version

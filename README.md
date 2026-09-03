@@ -22,9 +22,11 @@ Agent: 意图 → 能力路由 → 预算计划 → 指纹批准 → 评审与�
 RunManifest 1.2 / MLflow / 本地会话
 ```
 
-所有生成任务先产生不可变计划与 SHA-256 批准指纹。JSON 模式永不交互；它只返回
-`awaiting_approval`，之后必须显式调用 `agent execute --approve`。Agent 没有 shell、
-任意文件写入、模型下载、LoRA 训练、人工批准或 production export 权限。
+Agent 的每个媒体任务先产生不可变计划与 SHA-256 批准指纹。成功的 `agent plan` 和
+JSON 模式的 `agent run` 返回 `awaiting_approval`；之后显式调用
+`agent execute --approve` 执行，JSON 模式也会执行已批准任务。`agent chat` 不支持
+JSON 模式。Agent 没有 shell、任意文件写入、模型下载、LoRA 训练、人工批准或
+production export 权限。
 
 Development Harness 的工作方式是：
 
@@ -42,37 +44,81 @@ Agent-first 重构为 `008-agent-first-architecture` 至
 
 ## 快速开始
 
+### 核心环境准备
+
+以下命令从仓库根目录在 PowerShell 执行，前提是 Miniforge/Mamba 已安装且在 PATH。
+
 ```powershell
 .\scripts\bootstrap.ps1 -Component core
 mamba run -n letsaigc-core letsaigc --json doctor
-mamba run -n letsaigc-core letsaigc models list
+mamba run -n letsaigc-core letsaigc agent --help
+```
+
+在进程环境或被 Git 忽略的 `.env` 中配置 `OPENAI_API_KEY`。本地媒体生成的 Agent
+同样使用 Responses 规划和视觉评审；`doctor` 只检查配置，不验证账户或发起付费请求。
+
+### Agent 使用
+
+规划会解析和暂存输入、保存本地会话，并调用 Responses，可能产生 API 费用。
+预留为 `$0.03 + 每张输入 $0.01`，同时受所传预算文件的单轮及总 USD 预算限制。
+媒体生成仍需单独批准。随附预算配置允许一次初始生成加最多 3 次修订；
+`TaskBudget` 类型省略修订字段时默认 10 次，允许的最大值也是 10 次。
+
+本地 SDXL：先由操作者部署 ComfyUI、同步模型并启动服务。
+
+```powershell
+.\scripts\bootstrap.ps1 -Component comfy
+mamba run -n letsaigc-core letsaigc models sync production-sdxl
 mamba run -n letsaigc-core letsaigc comfy serve
-# 另一个终端：
+```
+
+保持服务终端运行，在另一终端从仓库根目录规划任务：
+
+```powershell
+mamba run -n letsaigc-core letsaigc --json agent plan `
+  "生成一个居中的蓝色药水游戏图标" `
+  --backend comfy --budget configs\agent\budget-local.yaml
+```
+
+检查返回的计划、费用/GPU 预算和输出上限。用顶层 `id` 替换下面的 `TASK_ID`，
+用顶层 `plan_fingerprint` 替换 `PLAN_FINGERPRINT`，确认后执行：
+
+```powershell
+mamba run -n letsaigc-core letsaigc --json agent execute TASK_ID `
+  --approve PLAN_FINGERPRINT
+mamba run -n letsaigc-core letsaigc --json agent inspect TASK_ID
+```
+
+远端图片：使用已配置的凭据和远端预算即可，无需本地 ComfyUI 或模型权重。
+下面的计划也须检查返回值后，按上述方式单独批准执行。
+
+```powershell
+mamba run -n letsaigc-core letsaigc --json agent plan `
+  "生成一个透明背景的魔法药水游戏图标，低质量 1024x1024" `
+  --backend openai --budget configs\agent\budget-remote-low.yaml
+
+# 本地图片编辑：先完成本地 SDXL 准备，并替换示例图片路径。
+mamba run -n letsaigc-core letsaigc --json agent plan `
+  "保留轮廓，把它改成水彩道具图标" --image C:\assets\potion.png `
+  --backend comfy --budget configs\agent\budget-local.yaml
+```
+
+图片来源支持本地文件与 HTTPS URL；本地 recipe 最多接受单张输入，透明背景与
+多参考图能力边界见 [Agent 操作指南](docs/agent-quickstart.md)。该指南还说明会话恢复、
+视频与派生任务、编译证据和当前验收状态。
+
+### 专家命令
+
+以下保留接口直接运行底层管线，不经过 Agent 规划与指纹批准。执行前由操作者准备
+相应模型、服务和资源；生成完成后仍须通过生产门禁。
+
+```powershell
 mamba run -n letsaigc-core letsaigc workflow run sdxl-smoke
+# MLflow 前台服务，可在独立终端运行。
 mamba run -n letsaigc-core letsaigc tracking serve
 ```
 
-Agent 入口（计划不会生成媒体或下载模型，但 Responses 意图解析会使用预算文件中的
-planning reserve，并可能产生少量 API 费用）：
-
-```powershell
-# 进程环境优先；也可写入被 Git 忽略的 .env。
-$env:OPENAI_API_KEY = "..."
-
-mamba run -n letsaigc-core letsaigc --json agent plan `
-  "生成一个透明背景的魔法药水游戏图标" `
-  --backend auto --budget configs\agent\budget-remote-low.yaml
-
-mamba run -n letsaigc-core letsaigc --json agent execute TASK_ID `
-  --approve PLAN_FINGERPRINT
-
-# 图 + prompt：本地文件和 HTTPS URL 均可重复传入。
-mamba run -n letsaigc-core letsaigc --json agent plan `
-  "保留轮廓，把它改成水彩道具图标" --image C:\assets\potion.png `
-  --backend auto --budget configs\agent\budget-local.yaml
-```
-
-视频与序列帧入口：
+视频与序列帧示例：
 
 ```powershell
 # FFmpeg/ffprobe 由用户维护在系统 PATH；ComfyUI 需已在 127.0.0.1:8188 运行。
@@ -93,12 +139,13 @@ mamba run -n letsaigc-core letsaigc --json runpack build `
   --job configs\video\wan22-cloud-job.yaml
 ```
 
-进一步部署和验证见
-[`specs/001-project-harness/quickstart.md`](specs/001-project-harness/quickstart.md)。
-视频部署边界见
-[`specs/005-video-runtime-models/quickstart.md`](specs/005-video-runtime-models/quickstart.md)。
-本地思考与实测报告位于被 Git 忽略的 `.doc/`；运行时、模型、缓存和输出位于
-同样被忽略的 `.local/`。
+历史专家部署与验收记录见
+[图片/训练 quickstart](specs/001-project-harness/quickstart.md) 和
+[视频 quickstart](specs/005-video-runtime-models/quickstart.md)，其既有烟测结果不代表
+新增 Agent 链路已完成实机验收。
+本地思考与实测报告位于被 Git 忽略的 `.doc/`；运行时、模型、缓存、会话和输出位于
+同样被忽略的 `.local/`。会话、批准记录、输入副本及运行证据需要保留，不能与缓存一起
+视为可随时删除的数据。
 
 ## 安全边界
 

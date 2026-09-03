@@ -20,7 +20,12 @@ tests/
 
 ## Commands
 
-cd src; pytest; ruff check .
+Run from the repository root:
+
+```powershell
+mamba run -n letsaigc-core pytest
+mamba run -n letsaigc-core ruff check .
+```
 
 ## Code Style
 
@@ -36,8 +41,7 @@ Python 3.12 (core and ComfyUI), Python 3.10 (sd-scripts): Follow standard conven
 - Treat `.doc/`, `.local/`, base-model weights, secrets and transient outputs as local-only.
 - Use `mamba run -n letsaigc-core ...`; do not install project packages into global Python.
 - Keep ComfyUI and MLflow bound to `127.0.0.1`; v1 permits no third-party custom nodes.
-- Never accept a gated model license, kill GPU processes, change PowerShell execution policy,
-  create a Git commit, or silently reduce an effective training profile.
+- Never accept a gated model license, change PowerShell execution policy, or silently reduce an effective training profile.
 - Update UI JSON, API JSON and the workflow contract together. Every inference/training run
   must preserve revisions, hashes, seeds, effective parameters and output evidence.
 - Production export requires a production license lane, verified hashes, succeeded checks,

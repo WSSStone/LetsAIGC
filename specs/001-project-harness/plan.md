@@ -1,5 +1,12 @@
 # Implementation Plan: LetsAIGC Project Harness
 
+> **Historical scope note (2026-09-03):** This plan records the original expert
+> image/training foundation. Its historical use of "harness" does not define the
+> current product. Features 008–012 and Constitution 2.0 establish the Agent-driven
+> workbench and Development Harness boundary. See the
+> [current architecture](../../docs/agent-first-architecture.md) and
+> [Agent guide](../../docs/agent-quickstart.md). Original design details are retained.
+
 **Feature ID**: `001-project-harness` | **Date**: 2026-08-31 | **Spec**: [spec.md](./spec.md)  
 **Input**: Initialize a local-first, reproducible 2D game-asset AIGC workspace.
 

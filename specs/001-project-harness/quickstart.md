@@ -1,5 +1,10 @@
 # Quickstart
 
+> **Historical expert entrypoint (2026-09-03):** These commands describe the original
+> image/training workflow. For the current Agent entrypoint, setup, approval, and
+> acceptance status, use the [Agent guide](../../docs/agent-quickstart.md). Expert
+> commands remain available and execute directly; they do not use Agent approval.
+
 Run from the repository root; bootstrap never changes global PowerShell policy.
 
 ```powershell
@@ -20,5 +25,7 @@ mamba run -n letsaigc-core letsaigc eval run 2d-baseline
 mamba run -n letsaigc-core letsaigc train sdxl-lora --config configs/training/sdxl-lora-smoke.yaml
 ```
 
-Every command accepts `--json`. Runs live under `.local/runs`; MLflow and DVC are
-local. Production export requires a succeeded, verified and human-approved run.
+For JSON-capable CLI commands, put the root option before the command, for example
+`letsaigc --json doctor`; interactive `agent chat` does not support JSON mode.
+Runs live under `.local/runs`; MLflow and DVC are local. Production export requires
+a succeeded, verified and human-approved run.
