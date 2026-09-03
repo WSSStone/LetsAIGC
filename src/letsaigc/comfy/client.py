@@ -8,12 +8,15 @@ from typing import Any
 import httpx
 from websockets.sync.client import connect
 
+from ..config import get_setting
 from ..errors import RuntimeExecutionError
+
+DEFAULT_COMFY_URL = "http://127.0.0.1:8188"
 
 
 class ComfyClient:
-    def __init__(self, base_url: str = "http://127.0.0.1:8188", timeout: float = 30.0) -> None:
-        parsed = httpx.URL(base_url)
+    def __init__(self, base_url: str | None = None, timeout: float = 30.0) -> None:
+        parsed = httpx.URL(base_url or get_setting("COMFY_URL", DEFAULT_COMFY_URL))
         if parsed.host not in {"127.0.0.1", "localhost", "::1"}:
             raise ValueError("ComfyUI must use a loopback host")
         self.base_url = str(parsed).rstrip("/")

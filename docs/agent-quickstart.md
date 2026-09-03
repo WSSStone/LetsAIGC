@@ -15,11 +15,14 @@ mamba run -n letsaigc-core letsaigc agent --help
 已有核心环境时，可用 `mamba run -n letsaigc-core python -m pip install -e .`
 更新可编辑安装，无需安装到全局 Python。
 
-用户自行在进程环境或忽略的 `.env` 配置 `OPENAI_API_KEY`。`doctor` 只报告是否配置；
+用户自行在进程环境或忽略的 `.env`（参见 `.env.example`）配置 `LLM_API_KEY`，可选
+`LLM_BASE_URL` 指向兼容 Responses API 的中转站。`doctor` 只报告是否配置；
 不会验证账户、接受条款或发起付费请求。默认 Responses 模型 `gpt-5.6-luna`，
 `medium` reasoning、`store=false`，标准服务层、关闭 SDK 自动重试。
-模型名称可通过 `LETSAIGC_AGENT_MODEL` 覆盖，但必须同时维护匹配的已审查定价；
-缺少价格时拒绝请求，不会擅自用 Luna 费率结算其他模型。
+决策模型、视觉评审模型和图片模型分别由 `LLM_DECISION_MODEL`、`LLM_VLM_MODEL`、
+`LLM_IMAGE_MODEL` 指定，三者共用同一 `LLM_BASE_URL`/`LLM_API_KEY`；但都必须维护
+匹配的已审查定价与 provider 快照，缺少价格或未登记时拒绝请求，不会擅自结算其他模型。
+中转站必须支持结构化 JSON Schema 输出、顺序 function tool、vision data URL 与图片接口。
 
 本地和远端路线的规划都调用 Responses，可能计费。传入预算文件即限定此次规划费用：
 预留为 `$0.03 + 每张输入 $0.01`，同时受单轮和总预算限制。
@@ -93,7 +96,7 @@ ComfyUI 生成。`plan` 不产生编译图，当前 CLI 没有独立“只编译
 
 ## 远端图片
 
-使用核心环境、已配置的 `OPENAI_API_KEY` 和远端预算即可；此路径无需本地 ComfyUI
+使用核心环境、已配置的 `LLM_API_KEY`（如走中转站再加 `LLM_BASE_URL`）和远端预算即可；此路径无需本地 ComfyUI
 或模型权重。下面 `agent run` 会在展示计划后询问是否执行，`agent plan` 则只返回计划。
 
 ```powershell

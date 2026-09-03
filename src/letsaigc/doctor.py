@@ -11,7 +11,7 @@ from pathlib import Path
 
 import psutil
 
-from .agent.responses import load_openai_api_key
+from .agent.responses import llm_base_url, load_llm_api_key
 from .media import inspect_media_tools
 from .models import ModelManager
 from .paths import find_repo_root, local_path
@@ -136,9 +136,14 @@ def run_doctor() -> dict:
         _port("127.0.0.1", 8188),
         _port("127.0.0.1", 5000),
         Check(
-            "provider.openai_key",
-            "pass" if load_openai_api_key() else "warn",
-            "OPENAI_API_KEY is configured" if load_openai_api_key() else "OPENAI_API_KEY is not configured",
+            "provider.llm_key",
+            "pass" if load_llm_api_key() else "warn",
+            "LLM_API_KEY is configured" if load_llm_api_key() else "LLM_API_KEY is not configured",
+        ),
+        Check(
+            "provider.llm_endpoint",
+            "pass",
+            f"LLM_BASE_URL={llm_base_url()}" if llm_base_url() else "LLM_BASE_URL uses the provider default",
         ),
     ]
     manager = ModelManager()

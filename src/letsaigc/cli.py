@@ -12,7 +12,7 @@ from .agent import AgentOrchestrator
 from .agent.orchestrator import load_budget
 from .comfy import ComfyClient
 from .comfy.runtime import serve
-from .config import load_workflow_contract
+from .config import get_int_setting, get_setting, load_workflow_contract
 from .doctor import run_doctor
 from .drama import render_drama
 from .errors import LetsAIGCError, ValidationError
@@ -336,8 +336,10 @@ def review_approve(
 
 @tracking_app.command("serve")
 def tracking_serve(ctx: typer.Context) -> None:
-    _emit(ctx, {"host": "127.0.0.1", "port": 5000}, "starting MLflow at 127.0.0.1:5000")
-    raise typer.Exit(serve_mlflow())
+    host = get_setting("MLFLOW_HOST", "127.0.0.1")
+    port = get_int_setting("MLFLOW_PORT", 5000)
+    _emit(ctx, {"host": host, "port": port}, f"starting MLflow at {host}:{port}")
+    raise typer.Exit(serve_mlflow(host=host, port=port))
 
 
 @app.command("export")

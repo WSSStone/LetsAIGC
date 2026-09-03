@@ -62,3 +62,18 @@ def test_non_loopback_host_is_rejected() -> None:
         assert "loopback" in str(exc)
     else:
         raise AssertionError("non-loopback ComfyUI host was accepted")
+
+
+def test_comfy_url_env_is_used_when_no_argument(monkeypatch) -> None:
+    monkeypatch.setenv("COMFY_URL", "http://localhost:9001")
+    assert ComfyClient().base_url == "http://localhost:9001"
+
+
+def test_comfy_url_env_still_enforces_loopback(monkeypatch) -> None:
+    monkeypatch.setenv("COMFY_URL", "http://10.0.0.5:8188")
+    try:
+        ComfyClient()
+    except ValueError as exc:
+        assert "loopback" in str(exc)
+    else:
+        raise AssertionError("non-loopback COMFY_URL was accepted")

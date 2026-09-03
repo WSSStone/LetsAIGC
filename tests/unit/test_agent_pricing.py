@@ -19,3 +19,21 @@ def test_responses_usage_cost_includes_reasoning_output_and_cached_input() -> No
         "input_tokens": 1_000_000, "cached_input_tokens": 500_000, "output_tokens": 1_000_000,
     })
     assert cost == pytest.approx(1.31)
+
+
+def test_registered_alternate_agent_model_is_priced() -> None:
+    pricing = load_pricing().model_copy(update={
+        "agent_models": {
+            "relay-vlm": {
+                "input_per_million": 1.0,
+                "cached_input_per_million": 0.5,
+                "output_per_million": 2.0,
+            }
+        }
+    })
+    cost = calculate_luna_cost(
+        pricing,
+        {"input_tokens": 1_000_000, "cached_input_tokens": 0, "output_tokens": 1_000_000},
+        model="relay-vlm",
+    )
+    assert cost == pytest.approx(3.0)

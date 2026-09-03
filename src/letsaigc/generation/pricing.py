@@ -19,6 +19,7 @@ class PricingEntry(BaseModel):
     source: str
     agent_model: str = "gpt-5.6-luna"
     rates: dict[str, float]
+    agent_models: dict[str, dict[str, float]] = {}
     common_output_cost_usd: dict[str, dict[str, float]]
 
 
@@ -56,19 +57,39 @@ def calculate_actual_cost(pricing: PricingEntry, usage: dict[str, Any]) -> float
     return round(total, 8)
 
 
+def _agent_rate_set(pricing: PricingEntry, model: str) -> tuple[float, float, float]:
+    """Return (input, cached_input, output) per-million rates for a reviewed agent model."""
+    if model == pricing.agent_model:
+        return (
+            pricing.rates["luna_input_per_million"],
+            pricing.rates["luna_cached_input_per_million"],
+            pricing.rates["luna_output_per_million"],
+        )
+    entry = pricing.agent_models.get(model)
+    if entry is None:
+        raise PolicyError(f"No reviewed Agent token price for model: {model}")
+    try:
+        return (
+            entry["input_per_million"],
+            entry["cached_input_per_million"],
+            entry["output_per_million"],
+        )
+    except KeyError as exc:
+        raise PolicyError(f"Incomplete Agent token price for model: {model}") from exc
+
+
 def calculate_luna_cost(
     pricing: PricingEntry, usage: dict[str, Any], *, model: str = "gpt-5.6-luna"
 ) -> float:
     ensure_current(pricing)
-    if model != pricing.agent_model:
-        raise PolicyError(f"No reviewed Agent token price for model: {model}")
+    rate_input, rate_cached, rate_output = _agent_rate_set(pricing, model)
     input_tokens = float(usage.get("input_tokens", 0))
     cached_tokens = float(usage.get("cached_input_tokens", 0))
     output_tokens = float(usage.get("output_tokens", 0))
     uncached = max(0, input_tokens - cached_tokens)
     total = (
-        uncached * pricing.rates["luna_input_per_million"]
-        + cached_tokens * pricing.rates["luna_cached_input_per_million"]
-        + output_tokens * pricing.rates["luna_output_per_million"]
+        uncached * rate_input
+        + cached_tokens * rate_cached
+        + output_tokens * rate_output
     ) / 1_000_000
     return round(total, 8)

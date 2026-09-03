@@ -7,31 +7,40 @@ from pathlib import Path
 from typing import Any
 
 from ..agent.approval import canonical_json
-from ..agent.responses import load_openai_api_key, redact_secret
+from ..agent.responses import build_llm_client, load_llm_api_key, redact_secret
 from ..assets.resolver import validate_image_bytes
-from ..config import load_provider_catalog
+from ..config import get_setting, load_provider_catalog
 from ..errors import ReadinessError, RuntimeExecutionError, ValidationError
 from ..generation.pricing import calculate_actual_cost, ensure_current, load_pricing
 from ..paths import local_path
 from ..policy import verify_sha256
-from ..schemas import GenerationIntent, GenerationPlan
+from ..schemas import GenerationIntent, GenerationPlan, ProviderModelEntry
 from .base import GenerationResult
 
-MODEL_SNAPSHOT = "gpt-image-2-2026-04-21"
+DEFAULT_IMAGE_MODEL = "gpt-image-2"
 ALLOWED_SIZES = {"1024x1024", "1024x1536", "1536x1024"}
 ALLOWED_QUALITY = {"low", "medium", "high"}
 ALLOWED_BACKGROUND = {"auto", "opaque", "transparent"}
 
 
+def resolve_image_provider() -> ProviderModelEntry:
+    """Resolve LLM_IMAGE_MODEL to a production-qualified provider entry, id or snapshot."""
+    image_model = get_setting("LLM_IMAGE_MODEL", DEFAULT_IMAGE_MODEL)
+    provider = next(
+        (entry for entry in load_provider_catalog().models if image_model in {entry.id, entry.snapshot}),
+        None,
+    )
+    if provider is None or provider.license_lane != "production":
+        raise ReadinessError(f"Image model provider entry is missing or not production-qualified: {image_model}")
+    return provider
+
+
+def image_model_snapshot() -> str:
+    return resolve_image_provider().snapshot
+
+
 def _default_client():
-    key = load_openai_api_key()
-    if not key:
-        raise ReadinessError("OPENAI_API_KEY is not configured")
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise ReadinessError("OpenAI Python package is not installed in letsaigc-core") from exc
-    return OpenAI(api_key=key, max_retries=0, timeout=300)
+    return build_llm_client(timeout=300)
 
 
 class OpenAIImageBackend:
@@ -46,18 +55,14 @@ class OpenAIImageBackend:
         return self.client
 
     def execute(self, plan: GenerationPlan, *, iteration_id: str) -> GenerationResult:
-        provider = next(
-            (entry for entry in load_provider_catalog().models if entry.snapshot == MODEL_SNAPSHOT),
-            None,
-        )
-        if provider is None or provider.license_lane != "production":
-            raise ReadinessError("Pinned GPT Image 2 provider entry is missing or not production-qualified")
+        provider = resolve_image_provider()
+        snapshot = provider.snapshot
         pricing = load_pricing()
         ensure_current(pricing)
         if provider.pricing_id != pricing.id or plan.parameters.get("pricing_id") != pricing.id:
             raise ReadinessError("Approved OpenAI pricing version is missing or has changed")
-        if plan.backend != "openai" or plan.model != MODEL_SNAPSHOT:
-            raise ValidationError("OpenAI image backend requires the pinned GPT Image 2 snapshot")
+        if plan.backend != "openai" or plan.model != snapshot:
+            raise ValidationError("OpenAI image backend requires the approved image model snapshot")
         size = str(plan.parameters.get("size", "1024x1024"))
         quality = str(plan.parameters.get("quality", "low"))
         background = str(plan.parameters.get("background", "auto"))
@@ -74,7 +79,7 @@ class OpenAIImageBackend:
         if not prompt or len(prompt) > 2000:
             raise ValidationError("Image prompt must contain 1..2000 characters")
         request_record = {
-            "model": MODEL_SNAPSHOT,
+            "model": snapshot,
             "intent": plan.intent.value,
             "prompt": prompt,
             "size": size,
@@ -87,7 +92,7 @@ class OpenAIImageBackend:
         try:
             if plan.intent == GenerationIntent.text_to_image:
                 response = self._client().images.generate(
-                    model=MODEL_SNAPSHOT,
+                    model=snapshot,
                     prompt=prompt,
                     n=1,
                     size=size,
@@ -103,7 +108,7 @@ class OpenAIImageBackend:
                 with ExitStack() as stack:
                     images = [stack.enter_context(Path(item.derived_path).open("rb")) for item in plan.input_assets]
                     response = self._client().images.edit(
-                        model=MODEL_SNAPSHOT,
+                        model=snapshot,
                         image=images,
                         prompt=prompt,
                         n=1,
@@ -131,7 +136,7 @@ class OpenAIImageBackend:
             return GenerationResult(
                 outputs=[output],
                 request_id=str(request_id) if request_id else None,
-                model_snapshot=MODEL_SNAPSHOT,
+                model_snapshot=snapshot,
                 usage=usage,
                 actual_cost_usd=actual_cost,
                 request_hash=hashlib.sha256(canonical_json(request_record)).hexdigest(),
@@ -141,7 +146,7 @@ class OpenAIImageBackend:
         except Exception as exc:
             raise RuntimeExecutionError(
                 "OpenAI image request failed",
-                details={"error": redact_secret(str(exc), load_openai_api_key())},
+                details={"error": redact_secret(str(exc), load_llm_api_key())},
             ) from exc
 
     @staticmethod

@@ -7,4 +7,4 @@ models:
     terms_id: openai-services-agreement
     license_lane: production
     pricing_id: openai-standard-2026-09-02
-    credential_env: OPENAI_API_KEY
+    credential_env: LLM_API_KEY

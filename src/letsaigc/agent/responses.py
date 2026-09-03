@@ -1,65 +1,85 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
-import os
 from pathlib import Path
 from typing import Any
 
+from ..config import get_setting, get_url_setting
 from ..errors import ReadinessError, RuntimeExecutionError, ValidationError
 from ..generation.pricing import calculate_luna_cost, ensure_current, load_pricing
-from ..paths import find_repo_root
 from ..policy import verify_sha256
 from ..schemas import AgentEvaluation, GenerationIntent, ResolvedAsset
 
-DEFAULT_AGENT_MODEL = "gpt-5.6-luna"
+DEFAULT_DECISION_MODEL = "gpt-5.6-luna"
+DEFAULT_VLM_MODEL = "gpt-5.6-luna"
 
 
-def load_openai_api_key() -> str | None:
-    value = os.getenv("OPENAI_API_KEY")
-    if value:
-        return value
-    env_file = find_repo_root() / ".env"
-    if not env_file.is_file():
+def load_llm_api_key() -> str | None:
+    return get_setting("LLM_API_KEY")
+
+
+def llm_base_url() -> str | None:
+    return get_url_setting("LLM_BASE_URL")
+
+
+def endpoint_fingerprint() -> str | None:
+    """Hash the configured LLM endpoint so plan approval binds to it without leaking it."""
+    base_url = llm_base_url()
+    if not base_url:
         return None
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        name, raw = stripped.split("=", 1)
-        if name.strip() == "OPENAI_API_KEY":
-            return raw.strip().strip('"').strip("'") or None
-    return None
+    return hashlib.sha256(base_url.encode("utf-8")).hexdigest()
 
 
 def redact_secret(value: str, secret: str | None) -> str:
     return value.replace(secret, "[REDACTED]") if secret else value
 
 
-def _default_client():
-    key = load_openai_api_key()
+def build_llm_client(*, timeout: float = 120):
+    key = load_llm_api_key()
     if not key:
-        raise ReadinessError("OPENAI_API_KEY is not configured")
+        raise ReadinessError("LLM_API_KEY is not configured")
     try:
         from openai import OpenAI
     except ImportError as exc:
         raise ReadinessError("OpenAI Python package is not installed in letsaigc-core") from exc
-    return OpenAI(api_key=key, max_retries=0, timeout=120)
+    kwargs: dict[str, Any] = {"api_key": key, "max_retries": 0, "timeout": timeout}
+    base_url = llm_base_url()
+    if base_url:
+        kwargs["base_url"] = base_url
+    return OpenAI(**kwargs)
 
 
 class ResponsesAgentModel:
     """Thin Responses API adapter; all conversation state remains local."""
 
-    def __init__(self, client: Any | None = None, *, model: str | None = None) -> None:
+    def __init__(
+        self,
+        client: Any | None = None,
+        *,
+        decision_model: str | None = None,
+        vlm_model: str | None = None,
+    ) -> None:
         self.client = client
-        self.model = model or os.getenv("LETSAIGC_AGENT_MODEL", DEFAULT_AGENT_MODEL)
+        self.decision_model = decision_model or get_setting("LLM_DECISION_MODEL", DEFAULT_DECISION_MODEL)
+        self.vlm_model = vlm_model or get_setting("LLM_VLM_MODEL", DEFAULT_VLM_MODEL)
         self.last_usage: dict[str, Any] = {}
         self.last_cost_usd = 0.0
         self.context: list[dict[str, str]] = []
 
+    @property
+    def model(self) -> str:
+        """Decision model recorded as the approved planning agent model."""
+        return self.decision_model
+
+    @property
+    def endpoint_fingerprint(self) -> str | None:
+        return endpoint_fingerprint()
+
     def _client(self):
         if self.client is None:
-            self.client = _default_client()
+            self.client = build_llm_client(timeout=120)
         return self.client
 
     def interpret(
@@ -120,7 +140,7 @@ class ResponsesAgentModel:
         try:
             pricing = load_pricing()
             ensure_current(pricing)
-            calculate_luna_cost(pricing, {}, model=self.model)
+            calculate_luna_cost(pricing, {}, model=self.decision_model)
             input_items: list[Any] = [{"role": "user", "content": content}]
             tools = [
                 {
@@ -133,7 +153,7 @@ class ResponsesAgentModel:
             ]
             for _ in range(4):
                 response = self._client().responses.create(
-                    model=self.model,
+                    model=self.decision_model,
                     reasoning={"effort": "medium"},
                     service_tier="default",
                     store=False,
@@ -154,7 +174,7 @@ class ResponsesAgentModel:
                 usage = self._usage_dict(getattr(response, "usage", None))
                 for key, value in usage.items():
                     self.last_usage[key] = self.last_usage.get(key, 0) + value
-                self.last_cost_usd += calculate_luna_cost(pricing, usage, model=self.model)
+                self.last_cost_usd += calculate_luna_cost(pricing, usage, model=self.decision_model)
                 self._check_response(response)
                 if getattr(response, "output_text", ""):
                     return json.loads(response.output_text)
@@ -184,7 +204,7 @@ class ResponsesAgentModel:
                 )
             raise RuntimeExecutionError("Responses planning exceeded the sequential tool-call limit")
         except Exception as exc:
-            key = load_openai_api_key()
+            key = load_llm_api_key()
             raise RuntimeExecutionError(
                 "Responses planning failed",
                 details={"error": redact_secret(str(exc), key)},
@@ -231,9 +251,9 @@ class ResponsesAgentModel:
         try:
             pricing = load_pricing()
             ensure_current(pricing)
-            calculate_luna_cost(pricing, {}, model=self.model)
+            calculate_luna_cost(pricing, {}, model=self.vlm_model)
             response = self._client().responses.create(
-                model=self.model,
+                model=self.vlm_model,
                 reasoning={"effort": "medium"},
                 service_tier="default",
                 store=False,
@@ -246,7 +266,7 @@ class ResponsesAgentModel:
             payload = json.loads(response.output_text)
             usage = self._usage_dict(getattr(response, "usage", None))
             self.last_usage = usage
-            self.last_cost_usd = calculate_luna_cost(pricing, usage, model=self.model)
+            self.last_cost_usd = calculate_luna_cost(pricing, usage, model=self.vlm_model)
             payload["revision"] = {key: value for key, value in payload["revision"].items() if value is not None}
             return AgentEvaluation(
                 hard_constraints=hard_constraints,
@@ -255,7 +275,7 @@ class ResponsesAgentModel:
                 **payload,
             )
         except Exception as exc:
-            key = load_openai_api_key()
+            key = load_llm_api_key()
             raise RuntimeExecutionError(
                 "Responses evaluation failed",
                 details={"error": redact_secret(str(exc), key)},

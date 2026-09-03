@@ -65,7 +65,18 @@ def test_provider_errors_redact_key(monkeypatch) -> None:
         def create(self, **kwargs):
             raise ValueError("failure: unit-secret-key")
 
-    monkeypatch.setenv("OPENAI_API_KEY", "unit-secret-key")
+    monkeypatch.setenv("LLM_API_KEY", "unit-secret-key")
     with pytest.raises(RuntimeExecutionError) as caught:
         ResponsesAgentModel(SimpleNamespace(responses=BrokenResponses())).interpret("potion", [], [])
     assert "unit-secret-key" not in str(caught.value.details)
+
+
+def test_interpret_and_evaluate_route_to_decision_and_vlm_models(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_DECISION_MODEL", "gpt-5.6-luna")
+    monkeypatch.setenv("LLM_VLM_MODEL", "gpt-5.6-luna")
+    responses = FakeResponses()
+    model = ResponsesAgentModel(SimpleNamespace(responses=responses))
+    assert model.decision_model == "gpt-5.6-luna"
+    assert model.vlm_model == "gpt-5.6-luna"
+    model.interpret("potion", [], [])
+    assert responses.kwargs["model"] == model.decision_model

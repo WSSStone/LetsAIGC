@@ -118,6 +118,8 @@ class GenerationPlan(StrictAgentModel):
     model: str
     recipe: str | None = None
     agent_model: str = "gpt-5.6-luna"
+    agent_vlm_model: str = "gpt-5.6-luna"
+    agent_endpoint_fingerprint: str | None = None
     dependency_hashes: dict[str, str] = Field(default_factory=dict)
     parameters: dict[str, Any]
     input_assets: list[ResolvedAsset] = Field(default_factory=list)

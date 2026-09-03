@@ -39,6 +39,10 @@ def test_real_sdk_serializes_stateless_sequential_planning_and_critique() -> Non
         assert body["parallel_tool_calls"] is False
         assert body["service_tier"] == "default"
         assert "test-key" not in json.dumps(body)
+        if body["text"]["format"]["name"] == "generation_intent":
+            assert body["model"] == model.decision_model
+        else:
+            assert body["model"] == model.vlm_model
         _assert_strict_objects(body["text"]["format"]["schema"])
 
 

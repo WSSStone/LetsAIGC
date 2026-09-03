@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import subprocess
 
-from ..paths import local_path
-from .mlflow_store import tracking_uri
+from ..config import get_int_setting, get_setting
+from .mlflow_store import artifact_root, tracking_uri
 
 
-def serve_mlflow(*, host: str = "127.0.0.1", port: int = 5000) -> int:
+def serve_mlflow(*, host: str | None = None, port: int | None = None) -> int:
+    host = host or get_setting("MLFLOW_HOST", "127.0.0.1")
+    port = port if port is not None else get_int_setting("MLFLOW_PORT", 5000)
     if host != "127.0.0.1":
         raise ValueError("MLflow host must remain 127.0.0.1")
-    artifacts = local_path("mlflow", "artifacts")
-    artifacts.mkdir(parents=True, exist_ok=True)
+    artifacts = artifact_root()
     command = [
         "mlflow",
         "server",

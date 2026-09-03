@@ -11,7 +11,7 @@ from ..assets import AssetResolver
 from ..backends.base import GenerationBackend, GenerationResult
 from ..backends.comfy import ComfyBackend
 from ..backends.media import MediaToolBackend
-from ..backends.openai_image import MODEL_SNAPSHOT, OpenAIImageBackend
+from ..backends.openai_image import OpenAIImageBackend, image_model_snapshot
 from ..comfy import ComfyClient
 from ..config import load_catalog, load_typed
 from ..errors import PolicyError, ReadinessError, ValidationError
@@ -42,7 +42,12 @@ from ..tracking.manifest import add_output, create_manifest
 from ..tracking.mlflow_store import log_manifest
 from .approval import BudgetLedger, approve_plan, canonical_json, plan_fingerprint
 from .critic import AgentCritic, validate_revision
-from .responses import ResponsesAgentModel, load_openai_api_key
+from .responses import (
+    DEFAULT_DECISION_MODEL,
+    DEFAULT_VLM_MODEL,
+    ResponsesAgentModel,
+    load_llm_api_key,
+)
 from .storage import AgentStore
 
 ALLOWED_TOOL_NAMES = {"comfy.generate", "openai.image", "sprites.build", "drama.render"}
@@ -169,7 +174,9 @@ class AgentOrchestrator:
             assets=assets,
             budget=budget,
         )
-        generation_plan.agent_model = getattr(self.model, "model", "gpt-5.6-luna")
+        generation_plan.agent_model = getattr(self.model, "model", DEFAULT_DECISION_MODEL)
+        generation_plan.agent_vlm_model = getattr(self.model, "vlm_model", DEFAULT_VLM_MODEL)
+        generation_plan.agent_endpoint_fingerprint = getattr(self.model, "endpoint_fingerprint", None)
         generation_plan.dependency_hashes = self._plan_dependencies(generation_plan)
         self._transition(task, AgentTaskState.validate_budget)
         self._validate_estimate(generation_plan, spent_cost_usd=task.budget_usage.actual_cost_usd)
@@ -199,8 +206,12 @@ class AgentOrchestrator:
         if task.state != AgentTaskState.awaiting_approval or task.plan is None:
             raise PolicyError(f"Task is not awaiting approval: {task.state.value}")
         task.approval = approve_plan(task.plan, approval_fingerprint)
-        if task.plan.agent_model != getattr(self.model, "model", "gpt-5.6-luna"):
-            raise PolicyError("Agent model changed after planning; create and approve a new plan")
+        if (
+            task.plan.agent_model != getattr(self.model, "model", DEFAULT_DECISION_MODEL)
+            or task.plan.agent_vlm_model != getattr(self.model, "vlm_model", DEFAULT_VLM_MODEL)
+            or task.plan.agent_endpoint_fingerprint != getattr(self.model, "endpoint_fingerprint", None)
+        ):
+            raise PolicyError("Agent model or endpoint changed after planning; create and approve a new plan")
         self._verify_plan_inputs(task.plan)
         self._validate_estimate(
             task.plan,
@@ -417,9 +428,9 @@ class AgentOrchestrator:
             comfy.available = False
             comfy.reason = str(exc)
         remote = next(item for item in result if item.backend == "openai")
-        if not load_openai_api_key():
+        if not load_llm_api_key():
             remote.available = False
-            remote.reason = "OPENAI_API_KEY is not configured"
+            remote.reason = "LLM_API_KEY is not configured"
         return result
 
     @staticmethod
@@ -454,6 +465,7 @@ class AgentOrchestrator:
             size = requested.get("size", "1024x1024")
             quality = requested.get("quality", "low")
             background = requested.get("background", "auto")
+            snapshot = image_model_snapshot()
             pricing = load_pricing()
             input_reserve = 0.08 * len(assets)
             reserve = 2 * image_output_reservation(pricing, size=size, quality=quality) + input_reserve + 0.06
@@ -470,14 +482,14 @@ class AgentOrchestrator:
                 intent=intent,
                 user_intent=user_intent,
                 backend="openai",
-                model=MODEL_SNAPSHOT,
+                model=snapshot,
                 parameters=parameters,
                 input_assets=assets,
                 acceptance_criteria=criteria,
                 estimated_iteration_cost_usd=reserve,
                 envelope=ExecutionEnvelope(
                     backend="openai",
-                    model=MODEL_SNAPSHOT,
+                    model=snapshot,
                     max_width=int(size.split("x")[0]),
                     max_height=int(size.split("x")[1]),
                     quality=quality,

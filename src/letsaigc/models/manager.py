@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 from urllib.parse import quote
 
 import httpx
 
-from ..config import load_catalog
+from ..config import get_setting, load_catalog
 from ..errors import ReadinessError, ValidationError
 from ..paths import local_path
 from ..policy import assert_model_allowed, verify_sha256
@@ -81,7 +80,7 @@ class ModelManager:
                     f"https://huggingface.co/{model.source.repo}/resolve/"
                     f"{model.source.revision}/{quote(item.source_path)}?download=true"
                 )
-                auth_token = token or os.getenv("HF_TOKEN")
+                auth_token = token or get_setting("HF_TOKEN")
                 headers = {"Authorization": f"Bearer {auth_token}"} if auth_token else {}
                 try:
                     with httpx.stream("GET", url, headers=headers, follow_redirects=True, timeout=None) as response:

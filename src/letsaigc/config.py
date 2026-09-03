@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel
 
+from .errors import ValidationError
 from .paths import find_repo_root
 from .schemas import (
     Catalog,
@@ -18,6 +20,51 @@ from .schemas import (
     TrainingConfig,
     WorkflowContract,
 )
+
+
+def _dotenv_values() -> dict[str, str]:
+    """Parse the Git-ignored repository .env file; process environment wins over it."""
+    env_file = find_repo_root() / ".env"
+    values: dict[str, str] = {}
+    if not env_file.is_file():
+        return values
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        name, raw = stripped.split("=", 1)
+        values[name.strip()] = raw.strip().strip('"').strip("'")
+    return values
+
+
+def get_setting(name: str, default: str | None = None) -> str | None:
+    """Return a runtime setting from the process environment, then .env; empty means unset."""
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        value = _dotenv_values().get(name)
+    if value is None or not value.strip():
+        return default
+    return value.strip()
+
+
+def get_int_setting(name: str, default: int) -> int:
+    raw = get_setting(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ValidationError(f"Environment variable {name} must be an integer: {raw!r}") from exc
+
+
+def get_url_setting(name: str, default: str | None = None) -> str | None:
+    """Return a URL-like setting, rejecting values without a scheme and host/path body."""
+    value = get_setting(name, default)
+    if value is None:
+        return None
+    if "://" not in value or value.split("://", 1)[1] == "":
+        raise ValidationError(f"Environment variable {name} must be an absolute URL: {value!r}")
+    return value
 
 
 def load_yaml(path: Path | str) -> dict[str, Any]:

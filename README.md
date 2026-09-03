@@ -54,8 +54,11 @@ mamba run -n letsaigc-core letsaigc --json doctor
 mamba run -n letsaigc-core letsaigc agent --help
 ```
 
-在进程环境或被 Git 忽略的 `.env` 中配置 `OPENAI_API_KEY`。本地媒体生成的 Agent
-同样使用 Responses 规划和视觉评审；`doctor` 只检查配置，不验证账户或发起付费请求。
+在进程环境或被 Git 忽略的 `.env`（参见 `.env.example`）中配置 `LLM_API_KEY`，可选
+`LLM_BASE_URL` 指向兼容 Responses API 的中转站，并按需设置 `LLM_DECISION_MODEL`、
+`LLM_VLM_MODEL`、`LLM_IMAGE_MODEL`。中转站必须支持结构化 JSON Schema 输出、顺序
+function tool、vision data URL 与图片接口。本地媒体生成的 Agent 同样使用 Responses
+规划和视觉评审；`doctor` 只检查配置，不验证账户或发起付费请求。
 
 ### Agent 使用
 
