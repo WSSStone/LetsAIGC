@@ -1,0 +1,16 @@
+id: openai-standard-2026-09-02
+effective_at: 2026-09-02
+review_after: 2026-10-02
+source: https://developers.openai.com/api/docs/pricing
+agent_model: gpt-5.6-luna
+rates:
+  luna_input_per_million: 0.20
+  luna_cached_input_per_million: 0.02
+  luna_output_per_million: 1.20
+  text_input_per_million: 5.00
+  image_input_per_million: 8.00
+  image_output_per_million: 30.00
+common_output_cost_usd:
+  1024x1024: {low: 0.006, medium: 0.053, high: 0.211}
+  1024x1536: {low: 0.005, medium: 0.041, high: 0.165}
+  1536x1024: {low: 0.005, medium: 0.041, high: 0.165}

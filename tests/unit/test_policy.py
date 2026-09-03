@@ -50,3 +50,26 @@ def test_restricted_lane_never_exports() -> None:
     )
     assert not decision.allowed
     assert any("not in the production lane" in reason for reason in decision.reasons)
+
+
+def test_dynamic_graph_is_rechecked_at_export(tmp_path: Path) -> None:
+    path = tmp_path / "graph.json"
+    path.write_text('{"changed": true}')
+    manifest = _manifest(approved=True)
+    manifest.source = {"compiled_graph_path": str(path), "compiled_graph_sha256": "0" * 64}
+    decision = evaluate_export(manifest, lane=LicenseLane.production)
+    assert not decision.allowed
+    assert "compiled graph hash is invalid" in decision.reasons
+
+
+def test_agent_parent_cannot_hide_experimental_child(monkeypatch) -> None:
+    child = _manifest(approved=False)
+    child.governance.validations["runtime_qualification"] = False
+    parent = _manifest(approved=True)
+    parent.kind = "agent_task"
+    parent.outputs[0].derived_from_run_id = "child"
+    monkeypatch.setattr("letsaigc.tracking.load_manifest", lambda run_id: child)
+    decision = evaluate_export(parent, lane=LicenseLane.production)
+    assert not decision.allowed
+    assert any("selected source" in reason for reason in decision.reasons)
+    assert not child.governance.human_approved

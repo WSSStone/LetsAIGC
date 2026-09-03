@@ -1,0 +1,24 @@
+schema_version: 1
+id: wan22-cloud-job
+workflow: wan21-t2v-smoke
+inputs:
+  prompt: game character walking cycle, full body, pure green background
+  negative_prompt: camera motion, scene cut, text, watermark
+  seed: 7
+  width: 512
+  height: 512
+  frames: 17
+  fps: 16
+models: [wan22-ti2v-5b]
+references: []
+resource_budget:
+  vram_gib: 24
+  ram_gib: 48
+  free_disk_gib: 30
+  timeout_seconds: 3600
+expected_output:
+  media_kind: video
+  allowed_extensions: [.mp4, .mkv, .webm]
+  width: 512
+  height: 512
+  max_frames: 81

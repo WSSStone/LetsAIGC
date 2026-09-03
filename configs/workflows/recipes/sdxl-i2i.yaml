@@ -1,0 +1,18 @@
+schema_version: 1
+id: sdxl-i2i
+version: 1.0.0
+intent: image_to_image
+stability: stable
+base_workflow: workflows/api/sdxl-smoke.json
+models: [sdxl-base-1.0]
+allowed_nodes: [CheckpointLoaderSimple, LoadImage, VAEEncode, CLIPTextEncode, KSampler, VAEDecode, SaveImage]
+parameter_bounds:
+  prompt: {node: "6", input: text, type: string, min_length: 1, max_length: 2000}
+  negative_prompt: {node: "7", input: text, type: string, max_length: 2000}
+  seed: {node: "3", input: seed, type: integer, minimum: 0}
+  steps: {node: "3", input: steps, type: integer, minimum: 1, maximum: 60}
+  cfg: {node: "3", input: cfg, type: number, minimum: 1, maximum: 20}
+  denoise: {node: "3", input: denoise, type: number, minimum: 0.05, maximum: 1.0}
+mutable_parameters: [prompt, negative_prompt, seed, steps, cfg, denoise]
+outputs: [{node_id: "9", history_field: images, role: primary_image, media_kind: image, allowed_extensions: [.png]}]
+resource_budget: {vram_gib: 10, ram_gib: 24, free_disk_gib: 8, timeout_seconds: 600}

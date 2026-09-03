@@ -13,7 +13,7 @@ import psutil
 
 from ..paths import find_repo_root, local_path
 from ..policy.gates import sha256_file
-from ..schemas import LicenseLane, RunGovernance, RunManifest, RunOutput
+from ..schemas import AgentRunMetadata, LicenseLane, MediaMetadata, RunGovernance, RunManifest, RunOutput
 
 
 def _git(command: list[str]) -> str | None:
@@ -45,6 +45,8 @@ def create_manifest(
     parameters: dict[str, Any],
     license_lanes: list[LicenseLane],
     source: dict[str, Any] | None = None,
+    parent_run_id: str | None = None,
+    agent: AgentRunMetadata | None = None,
 ) -> RunManifest:
     git_commit = _git(["rev-parse", "HEAD"])
     git_status = _git(["status", "--short"])
@@ -61,6 +63,8 @@ def create_manifest(
         source=merged_source,
         parameters=parameters,
         environment=environment_snapshot(),
+        parent_run_id=parent_run_id,
+        agent=agent,
         governance=RunGovernance(
             license_lanes=license_lanes,
             validations={"contract": False, "hashes": False, "provenance": True},
@@ -83,10 +87,26 @@ def load_manifest(run_id: str) -> RunManifest:
     return RunManifest.model_validate_json(manifest_path(run_id).read_text(encoding="utf-8"))
 
 
-def add_output(manifest: RunManifest, path: Path) -> None:
+def add_output(
+    manifest: RunManifest,
+    path: Path,
+    *,
+    role: str | None = None,
+    media_kind: str | None = None,
+    media: MediaMetadata | None = None,
+    derived_from_run_id: str | None = None,
+    derived_from_sha256: str | None = None,
+) -> None:
     manifest.outputs.append(
         RunOutput(
-            path=str(path.resolve()), sha256=sha256_file(path), size_bytes=path.stat().st_size
+            path=str(path.resolve()),
+            sha256=sha256_file(path),
+            size_bytes=path.stat().st_size,
+            role=role,
+            media_kind=media_kind,
+            media=media,
+            derived_from_run_id=derived_from_run_id,
+            derived_from_sha256=derived_from_sha256,
         )
     )
 

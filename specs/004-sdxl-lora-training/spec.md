@@ -1,6 +1,6 @@
 # Feature Specification: SDXL LoRA Training
 
-**Feature Branch**: `004-sdxl-lora-training`  
+**Feature ID**: `004-sdxl-lora-training`  
 **Created**: 2026-08-31  
 **Status**: Implemented smoke baseline; production adapter approval pending human review
 

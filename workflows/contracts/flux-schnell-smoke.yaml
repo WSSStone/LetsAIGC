@@ -23,3 +23,7 @@ models: [flux1-schnell-fp8]
 nodes: [CheckpointLoaderSimple, EmptyLatentImage, CLIPTextEncode, KSampler, VAEDecode, SaveImage]
 resource_budget: {vram_gib: 10, ram_gib: 40, free_disk_gib: 20, timeout_seconds: 1200}
 export_lanes: [production]
+media_kind: image
+outputs:
+  - {node_id: "9", history_field: images, role: primary_image, media_kind: image, allowed_extensions: [.png]}
+temporal_budget: {width: 1024, height: 1024, temporary_disk_gib: 2}

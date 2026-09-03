@@ -8,8 +8,9 @@ description: "Task list template for feature implementation"
 **Input**: Design documents from `/specs/[###-feature-name]/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
-**Tests**: Contract, policy, provenance, and failure-path tests required by the
-constitution MUST be included before the corresponding implementation tasks.
+**Tests**: Contract, policy, provenance, input-security, approval/budget, and
+failure-path tests required by the constitution MUST be included before the
+corresponding implementation tasks.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
@@ -69,8 +70,10 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] T007 [P] Implement loopback-only service and process boundaries
 - [ ] T008 [P] Setup API/CLI routing and schema validation
 - [ ] T009 Create base models/entities that all stories depend on
-- [ ] T010 Configure error handling, logging, and resource-budget checks
+- [ ] T010 Configure error handling, logging, and resource-budget checks, including temporal media limits when applicable
 - [ ] T011 Setup environment, revision, and hash-lock management
+- [ ] T012 Verify Agent tool allowlists, immutable approval envelopes, secret
+  redaction, and SSRF/media-input defenses when applicable
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 

@@ -1,0 +1,61 @@
+schema_version: 1
+id: wan21-t2v-smoke
+version: 1.0.0
+description: Native ComfyUI Wan2.1 1.3B fixed-budget local video smoke workflow.
+ui_workflow: workflows/ui/wan21-t2v-smoke.json
+api_workflow: workflows/api/wan21-t2v-smoke.json
+input_schema:
+  type: object
+  additionalProperties: false
+  required: [prompt, negative_prompt, seed, width, height, frames, fps]
+  properties:
+    prompt: {type: string, minLength: 1}
+    negative_prompt: {type: string}
+    seed: {type: integer, minimum: 0}
+    width: {type: integer, minimum: 256, maximum: 512, multipleOf: 16}
+    height: {type: integer, minimum: 256, maximum: 512, multipleOf: 16}
+    frames: {type: integer, minimum: 1, maximum: 17}
+    fps: {type: number, minimum: 1, maximum: 16}
+output_schema:
+  type: object
+  required: [primary_video]
+bindings:
+  prompt: /4/inputs/text
+  negative_prompt: /5/inputs/text
+  seed: /7/inputs/seed
+  width: /6/inputs/width
+  height: /6/inputs/height
+  frames: /6/inputs/length
+  fps: /9/inputs/fps
+defaults:
+  prompt: game character walking cycle, full body, pure green background
+  negative_prompt: camera motion, scene cut, text, watermark, cropped body, multiple characters
+  seed: 7
+  width: 512
+  height: 512
+  frames: 17
+  fps: 16
+models: [wan21-t2v-1.3b]
+adapters: []
+nodes: [UNETLoader, CLIPLoader, VAELoader, CLIPTextEncode, EmptyHunyuanLatentVideo, KSampler, VAEDecode, CreateVideo, SaveVideo]
+resource_budget:
+  vram_gib: 10
+  ram_gib: 32
+  free_disk_gib: 12
+  timeout_seconds: 3600
+export_lanes: [production]
+media_kind: video
+outputs:
+  - node_id: "10"
+    history_field: images
+    role: primary_video
+    media_kind: video
+    allowed_extensions: [.mp4]
+    required: true
+temporal_budget:
+  width: 512
+  height: 512
+  fps: 16
+  frame_count: 17
+  duration_seconds: 2
+  temporary_disk_gib: 5

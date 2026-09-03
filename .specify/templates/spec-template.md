@@ -1,6 +1,6 @@
 # Feature Specification: [FEATURE NAME]
 
-**Feature Branch**: `[###-feature-name]`  
+**Feature ID**: `[###-feature-name]`  
 **Created**: [DATE]  
 **Status**: Draft  
 **Input**: User description: "$ARGUMENTS"
@@ -93,9 +93,12 @@
 ### Policy and Evidence Requirements *(mandatory for model, data, or workflow features)*
 
 - **PER-001**: Define the license lane and production export behavior for every model or adapter.
-- **PER-002**: Define the resource budget and supported local hardware profile.
+- **PER-002**: Define the resource budget and supported local hardware profile, including dimensions, FPS, frame count, duration and temporary disk for temporal media.
 - **PER-003**: Define the provenance manifest and the evidence required for acceptance.
 - **PER-004**: Define owned, third-party, private, transient, and exported data boundaries.
+- **PER-005**: For Agent or paid-provider features, define approval fingerprint,
+  per-iteration/total budgets, authority boundaries, secret redaction, and untrusted
+  input handling.
 
 *Example of marking unclear requirements:*
 

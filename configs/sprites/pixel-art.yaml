@@ -1,0 +1,29 @@
+schema_version: 1
+id: pixel-art
+canvas_width: 128
+canvas_height: 128
+fps: 12
+max_frames: 24
+margin_fraction: 0.05
+pixel_art: true
+background:
+  color: "#00FF00"
+  transparent_delta: 18
+  opaque_delta: 24
+  despill_strength: 1
+  edge_feather_px: 0
+  hard_alpha: true
+anchor:
+  mode: alpha_bottom_center
+  target_x: 0.5
+  target_y: 0.953125
+  max_raw_drift_fraction: 0.08
+  max_error_px: 0
+validation:
+  min_foreground_fraction: 0.01
+  max_foreground_fraction: 0.80
+  max_border_contact_fraction: 0.005
+atlas:
+  max_width: 4096
+  max_height: 4096
+  layout: near_square_row_major

@@ -1,0 +1,27 @@
+schema_version: 1
+id: episode-01-preview
+width: 1280
+height: 720
+fps: 24
+shots:
+  - id: establishing
+    source_run_id: replace-with-a-succeeded-video-run
+    transition: cut
+    expected_duration_seconds: 3
+  - id: character-beat
+    workflow: wan21-t2v-smoke
+    inputs:
+      prompt: full-body game character reaction, locked camera, coherent costume
+      negative_prompt: scene cut, camera motion, text, watermark
+      seed: 11
+      width: 512
+      height: 512
+      frames: 17
+      fps: 16
+    transition: fade
+    fade_seconds: 0.35
+character_references: {}
+style_references: []
+audio_path: null
+subtitle_path: null
+burn_subtitles: false

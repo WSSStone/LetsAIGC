@@ -11,6 +11,8 @@ from pathlib import Path
 
 import psutil
 
+from .agent.responses import load_openai_api_key
+from .media import inspect_media_tools
 from .models import ModelManager
 from .paths import find_repo_root, local_path
 
@@ -87,6 +89,21 @@ def _port(host: str, port: int) -> Check:
     )
 
 
+def _media_tooling() -> Check:
+    try:
+        info = inspect_media_tools()
+    except Exception as exc:
+        return Check("tool.media", "fail", "FFmpeg/ffprobe validation failed", {"error": str(exc)})
+    return Check(
+        "tool.media",
+        "pass" if info.ready else "fail",
+        "FFmpeg/ffprobe required capabilities are available"
+        if info.ready
+        else "FFmpeg build lacks required capabilities",
+        info.as_dict(),
+    )
+
+
 def run_doctor() -> dict:
     root = find_repo_root()
     memory = psutil.virtual_memory()
@@ -113,10 +130,16 @@ def run_doctor() -> dict:
             f"{disk.free / 1024**3:.1f} GiB free at {disk_target}",
         ),
         _gpu(),
-        *[_command(name) for name in ("git", "git-lfs", "mamba", "ffmpeg")],
+        *[_command(name) for name in ("git", "git-lfs", "mamba")],
+        _media_tooling(),
         _conda_envs(),
         _port("127.0.0.1", 8188),
         _port("127.0.0.1", 5000),
+        Check(
+            "provider.openai_key",
+            "pass" if load_openai_api_key() else "warn",
+            "OPENAI_API_KEY is configured" if load_openai_api_key() else "OPENAI_API_KEY is not configured",
+        ),
     ]
     manager = ModelManager()
     installed = sum(1 for item in manager.list() if item["installed"])

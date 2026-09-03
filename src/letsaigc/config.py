@@ -8,7 +8,16 @@ import yaml
 from pydantic import BaseModel
 
 from .paths import find_repo_root
-from .schemas import Catalog, EvaluationSuite, LicensePolicy, TrainingConfig, WorkflowContract
+from .schemas import (
+    Catalog,
+    DramaProject,
+    EvaluationSuite,
+    LicensePolicy,
+    ProviderCatalog,
+    SpriteProfile,
+    TrainingConfig,
+    WorkflowContract,
+)
 
 
 def load_yaml(path: Path | str) -> dict[str, Any]:
@@ -42,9 +51,22 @@ def load_evaluation_suite(suite_id: str) -> EvaluationSuite:
     return load_typed(path, EvaluationSuite)
 
 
+def load_sprite_profile(path: Path | str) -> SpriteProfile:
+    return load_typed(path, SpriteProfile)
+
+
+def load_drama_project(path: Path | str) -> DramaProject:
+    return load_typed(path, DramaProject)
+
+
 def load_license_policy() -> LicensePolicy:
     path = find_repo_root() / "configs/policies/license-policy.yaml"
     return load_typed(path, LicensePolicy)
+
+
+def load_provider_catalog() -> ProviderCatalog:
+    path = find_repo_root() / "configs/providers/openai-models.yaml"
+    return load_typed(path, ProviderCatalog)
 
 
 def write_schema(model: type[BaseModel], path: Path) -> None:

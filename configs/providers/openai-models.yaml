@@ -1,0 +1,10 @@
+schema_version: 1
+models:
+  - id: gpt-image-2
+    provider: openai
+    snapshot: gpt-image-2-2026-04-21
+    intents: [text_to_image, image_to_image]
+    terms_id: openai-services-agreement
+    license_lane: production
+    pricing_id: openai-standard-2026-09-02
+    credential_env: OPENAI_API_KEY

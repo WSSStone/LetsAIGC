@@ -1,10 +1,15 @@
 # LetsAIGC Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-08-31
+Consolidated from all feature plans. Last updated: 2026-09-03
 
 ## Active Technologies
 
-- Python 3.12 (core and ComfyUI), Python 3.10 (sd-scripts) + Typer, Pydantic v2, PyYAML, JSON Schema, httpx, psutil, (001-project-harness)
+- Python 3.12 (core and ComfyUI), Python 3.10 (sd-scripts).
+- Typer, Pydantic v2, PyYAML, JSON Schema, httpx, psutil, and OpenAI Python SDK (lazy runtime import).
+- Native ComfyUI workflows and committed recipes; compiled graphs remain in `.local/agent`.
+- System `ffmpeg` and `ffprobe`; Pillow for deterministic image/frame operations.
+- `.local/agent/sessions` (including input copies), `.local/agent/tasks`, `.local/runs`, and `.local/models`.
+- Local MLflow tracking and DVC pointers for promoted artifacts.
 
 ## Project Structure
 
@@ -23,7 +28,9 @@ Python 3.12 (core and ComfyUI), Python 3.10 (sd-scripts): Follow standard conven
 
 ## Recent Changes
 
-- 001-project-harness: Added Python 3.12 (core and ComfyUI), Python 3.10 (sd-scripts) + Typer, Pydantic v2, PyYAML, JSON Schema, httpx, psutil,
+- Consolidated delivered work onto `master`; specification IDs remain stable and do not name active branches.
+- Added multimodal Agent critique and media orchestration with MLflow lineage.
+- Added constrained ComfyUI recipe compilation and validated local/remote generation assets.
 
 <!-- MANUAL ADDITIONS START -->
 - Treat `.doc/`, `.local/`, base-model weights, secrets and transient outputs as local-only.
@@ -35,5 +42,13 @@ Python 3.12 (core and ComfyUI), Python 3.10 (sd-scripts): Follow standard conven
   must preserve revisions, hashes, seeds, effective parameters and output evidence.
 - Production export requires a production license lane, verified hashes, succeeded checks,
   complete provenance and explicit human approval.
+- Video/runpack work must record declared media roles, FFmpeg versions and source hashes; never
+  package credentials, absolute paths or model weights.
+- Treat `.agents/`, `.specify/`, `AGENTS.md`, and `specs/` as the Development Harness only;
+  never expose them as LetsAIGC runtime features or call the product a harness.
+- Agent runtime tools must be allowlisted and sequential. They must not provide shell, arbitrary
+  writes, model download, training, human approval, or production export capabilities.
+- Paid media and GPU generation require an exact approval fingerprint and per-iteration/total
+  budget; credentials and URL query/fragment values must never enter logs, manifests, or runpacks.
 - Verify with `mamba run -n letsaigc-core pytest` and `mamba run -n letsaigc-core ruff check .`.
 <!-- MANUAL ADDITIONS END -->

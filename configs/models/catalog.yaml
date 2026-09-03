@@ -5,6 +5,8 @@ profiles:
   explore-flux-schnell: [flux1-schnell-fp8]
   conditional-sd35: [sd35-medium]
   restricted-flux-dev: [flux1-dev]
+  video-local-smoke: [wan21-t2v-1.3b]
+  video-local-i2v-experimental: [wan22-ti2v-5b]
 models:
   - id: sd15-fp16
     family: stable-diffusion-1.5
@@ -111,3 +113,62 @@ models:
     profiles: [restricted-flux-dev]
     resources: {min_vram_gib: 10, recommended_vram_gib: 24, ram_gib: 48, disk_gib: 25}
     enabled_by_default: false
+  - id: wan21-t2v-1.3b
+    family: wan2.1-t2v
+    title: Wan2.1 Text-to-Video 1.3B FP16 for ComfyUI
+    source:
+      repo: Comfy-Org/Wan_2.1_ComfyUI_repackaged
+      revision: 617a7633e636506f850e043bc4605f290a466a8e
+    files:
+      - source_path: split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors
+        target_path: diffusion_models/wan/wan2.1_t2v_1.3B_fp16.safetensors
+        sha256: be531024cd9018cb5b48c40cfbb6a6191645b1c792eb8bf4f8c1c6e10f924dc5
+        size_bytes: 2838303560
+      - source_path: split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors
+        target_path: text_encoders/wan/umt5_xxl_fp8_e4m3fn_scaled.safetensors
+        sha256: c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68
+        size_bytes: 6735906897
+      - source_path: split_files/vae/wan_2.1_vae.safetensors
+        target_path: vae/wan/wan_2.1_vae.safetensors
+        sha256: 2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b
+        size_bytes: 253815318
+    format: safetensors
+    license:
+      id: Apache-2.0
+      url: https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B/blob/main/LICENSE.txt
+      lane: production
+      commercial_use: allowed
+    gated: false
+    profiles: [video-local-smoke]
+    resources: {min_vram_gib: 8, recommended_vram_gib: 10, ram_gib: 32, disk_gib: 10}
+    enabled_by_default: false
+  - id: wan22-ti2v-5b
+    family: wan2.2-ti2v
+    title: Wan2.2 Text/Image-to-Video 5B FP16 experimental
+    source:
+      repo: Comfy-Org/Wan_2.2_ComfyUI_Repackaged
+      revision: c4f60d30c55a624e35427060fdd217579a6c1d77
+    files:
+      - source_path: split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors
+        target_path: diffusion_models/wan/wan2.2_ti2v_5B_fp16.safetensors
+        sha256: 456f901338bd9eadbded3828b819109a9b68e8a525ca5cf8d0049a69fcfeca1e
+        size_bytes: 9999658848
+      - source_path: split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors
+        target_path: text_encoders/wan/umt5_xxl_fp8_e4m3fn_scaled.safetensors
+        sha256: c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68
+        size_bytes: 6735906897
+      - source_path: split_files/vae/wan2.2_vae.safetensors
+        target_path: vae/wan/wan2.2_vae.safetensors
+        sha256: e40321bd36b9709991dae2530eb4ac303dd168276980d3e9bc4b6e2b75fed156
+        size_bytes: 1409400960
+    format: safetensors
+    license:
+      id: Apache-2.0
+      url: https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B/blob/main/LICENSE.txt
+      lane: production
+      commercial_use: allowed
+    gated: false
+    profiles: [video-local-i2v-experimental]
+    resources: {min_vram_gib: 10, recommended_vram_gib: 24, ram_gib: 48, disk_gib: 19}
+    enabled_by_default: false
+    runtime_status: experimental

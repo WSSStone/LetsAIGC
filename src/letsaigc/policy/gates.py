@@ -92,4 +92,36 @@ def evaluate_export(manifest: RunManifest, *, lane: LicenseLane) -> ExportDecisi
         reasons.append("a model or adapter is not in the production lane")
     if policy.require_human_approval and not manifest.governance.human_approved:
         reasons.append("human review is not approved")
+    # Dynamic Agent graphs are local artifacts, not a reason to trust stale flags.
+    for kind in ("graph", "contract"):
+        path = manifest.source.get(f"compiled_{kind}_path")
+        digest = manifest.source.get(f"compiled_{kind}_sha256")
+        if path or digest:
+            try:
+                payload = json.loads(Path(str(path)).read_text(encoding="utf-8"))
+                canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                if hashlib.sha256(canonical.encode()).hexdigest() != digest:
+                    reasons.append(f"compiled {kind} hash is invalid")
+            except (OSError, ValueError):
+                reasons.append(f"compiled {kind} evidence is missing or invalid")
+    if manifest.kind == "agent_task":
+        selected = {output.derived_from_run_id for output in manifest.outputs}
+        if len(selected) != 1 or None in selected:
+            reasons.append("Agent selection has no unambiguous source run")
+        else:
+            from ..tracking import load_manifest
+
+            try:
+                child = load_manifest(str(next(iter(selected))))
+                if child.kind == "agent_task":
+                    reasons.append("nested Agent selection cannot be exported directly")
+                else:
+                    # Human reviews the parent selection; no automated human approval
+                    # is persisted to a child. All technical/qualification gates carry.
+                    reviewed_child = child.model_copy(deep=True)
+                    reviewed_child.governance.human_approved = manifest.governance.human_approved
+                    child_decision = evaluate_export(reviewed_child, lane=lane)
+                    reasons.extend(f"selected source: {reason}" for reason in child_decision.reasons)
+            except (OSError, ValueError):
+                reasons.append("Agent selected source manifest is missing or invalid")
     return ExportDecision(not reasons, reasons)

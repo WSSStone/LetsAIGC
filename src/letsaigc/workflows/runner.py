@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from pathlib import Path
 from typing import Any
 
 from ..comfy import ComfyClient
 from ..config import load_catalog
 from ..errors import ReadinessError, RuntimeExecutionError
+from ..media import discover_declared_outputs, inspect_media_tools, probe_media
 from ..models import ModelManager
 from ..paths import find_repo_root, local_path
 from ..policy import assert_model_allowed, verify_sha256
+from ..tracking.hardware import GpuMemorySampler
 from ..tracking.manifest import add_output, create_manifest, save_manifest
 from ..tracking.mlflow_store import log_manifest
 from .contracts import prepare_workflow
@@ -20,7 +23,14 @@ class WorkflowRunner:
     def __init__(self, client: ComfyClient | None = None) -> None:
         self.client = client or ComfyClient()
 
-    def run(self, workflow_id: str, overrides: dict[str, Any] | None = None) -> dict:
+    def run(
+        self,
+        workflow_id: str,
+        overrides: dict[str, Any] | None = None,
+        *,
+        parent_run_id: str | None = None,
+        parent_mlflow_id: str | None = None,
+    ) -> dict:
         contract, graph, values = prepare_workflow(workflow_id, overrides)
         catalog = load_catalog()
         lookup = catalog.by_id()
@@ -41,8 +51,9 @@ class WorkflowRunner:
             adapter_path = local_path("models", "loras", dependency.path)
             verify_sha256(adapter_path, dependency.sha256)
             adapter_hashes[dependency.path] = dependency.sha256
+        run_kind = "video_generation" if contract.media_kind == "video" else "inference"
         manifest = create_manifest(
-            kind="inference",
+            kind=run_kind,
             parameters={"workflow_id": workflow_id, **values},
             license_lanes=lanes,
             source={
@@ -51,10 +62,19 @@ class WorkflowRunner:
                 "model_sha256": model_hashes,
                 "adapter_sha256": adapter_hashes,
             },
+            parent_run_id=parent_run_id,
         )
         manifest.governance.validations["contract"] = True
+        manifest.governance.validations["runtime_qualification"] = all(
+            lookup[model_id].runtime_status == "qualified" for model_id in contract.models
+        )
+        if contract.media_kind == "video":
+            manifest.environment["media_tools"] = inspect_media_tools().as_dict()
         manifest.status = "validated"
         save_manifest(manifest)
+        sampler = GpuMemorySampler()
+        sampler.start()
+        execution_started = time.monotonic()
         try:
             prompt_id = self.client.submit(graph)
             manifest.tracking["comfy_prompt_id"] = prompt_id
@@ -66,13 +86,33 @@ class WorkflowRunner:
                 prompt_id,
                 timeout_seconds=contract.resource_budget.timeout_seconds,
             )
-            for node in history.get("outputs", {}).values():
-                for image in node.get("images", []):
-                    if image.get("type", "output") != "output":
-                        continue
-                    output = local_path("output", image.get("subfolder", ""), image["filename"])
-                    if output.is_file():
-                        add_output(manifest, output)
+            manifest.parameters["execution_wall_time_seconds"] = round(
+                time.monotonic() - execution_started, 3
+            )
+            if contract.outputs:
+                discovered = discover_declared_outputs(
+                    history,
+                    contract.outputs,
+                    local_path("output"),
+                )
+                for item in discovered:
+                    media = probe_media(item.path)
+                    self._validate_temporal(contract, media)
+                    add_output(
+                        manifest,
+                        item.path,
+                        role=item.role,
+                        media_kind=item.media_kind,
+                        media=media,
+                    )
+            else:
+                for node in history.get("outputs", {}).values():
+                    for image in node.get("images", []):
+                        if image.get("type", "output") != "output":
+                            continue
+                        output = local_path("output", image.get("subfolder", ""), image["filename"])
+                        if output.is_file():
+                            add_output(manifest, output)
             if not manifest.outputs:
                 raise RuntimeExecutionError("ComfyUI completed without a discoverable output file")
             for output in manifest.outputs:
@@ -80,8 +120,10 @@ class WorkflowRunner:
             manifest.governance.validations["hashes"] = True
             mlflow_run_id = log_manifest(
                 manifest.run_id,
-                {"kind": "inference", "workflow_id": workflow_id},
+                {"kind": run_kind, "workflow_id": workflow_id},
                 {"output_count": float(len(manifest.outputs))},
+                artifacts=[Path(item.path) for item in manifest.outputs],
+                parent_run_id=parent_mlflow_id,
             )
             if mlflow_run_id:
                 manifest.tracking["mlflow_run_id"] = mlflow_run_id
@@ -89,7 +131,22 @@ class WorkflowRunner:
         except Exception as exc:
             manifest.status = "failed"
             manifest.error = {"type": type(exc).__name__, "message": str(exc)}
-            save_manifest(manifest)
             raise
-        save_manifest(manifest)
+        finally:
+            manifest.environment["gpu_memory"] = sampler.stop()
+            save_manifest(manifest)
         return json.loads(manifest.model_dump_json())
+
+    @staticmethod
+    def _validate_temporal(contract: Any, media: Any) -> None:
+        budget = contract.temporal_budget
+        if budget is None:
+            return
+        violations: list[str] = []
+        for name in ("width", "height", "frame_count", "duration_seconds", "fps"):
+            limit = getattr(budget, name)
+            actual = getattr(media, name)
+            if limit is not None and actual is not None and actual > limit:
+                violations.append(f"{name} {actual} exceeds {limit}")
+        if violations:
+            raise RuntimeExecutionError("Media output exceeds its temporal budget", details={"violations": violations})

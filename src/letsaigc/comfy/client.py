@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -70,6 +71,39 @@ class ComfyClient:
             raise RuntimeExecutionError("ComfyUI response did not contain prompt_id")
         return str(prompt_id)
 
+    def upload_image(self, path: Path, *, subfolder: str) -> str:
+        if not path.is_file():
+            raise RuntimeExecutionError(f"ComfyUI upload source is missing: {path}")
+        normalized = subfolder.replace("\\", "/").strip("/")
+        if not normalized or ".." in normalized.split("/"):
+            raise RuntimeExecutionError("ComfyUI upload subfolder is unsafe")
+        try:
+            with path.open("rb") as handle:
+                response = httpx.post(
+                    f"{self.base_url}/upload/image",
+                    files={"image": (path.name, handle, "application/octet-stream")},
+                    data={"subfolder": normalized, "type": "input", "overwrite": "false"},
+                    timeout=self.timeout,
+                )
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError, OSError) as exc:
+            raise RuntimeExecutionError(
+                "ComfyUI image upload failed", details={"error": str(exc)}
+            ) from exc
+        name = payload.get("name")
+        returned_subfolder = str(payload.get("subfolder", normalized)).replace("\\", "/").strip("/")
+        name_path = Path(str(name))
+        if (
+            not name
+            or name_path.is_absolute()
+            or name_path.name != str(name)
+            or ".." in name_path.parts
+            or returned_subfolder != normalized
+        ):
+            raise RuntimeExecutionError("ComfyUI returned an unsafe upload location")
+        return f"{returned_subfolder}/{name}"
+
     def wait(self, prompt_id: str, *, timeout_seconds: int, poll_seconds: float = 1.0) -> dict:
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
@@ -83,6 +117,19 @@ class ComfyClient:
                     return record
             time.sleep(poll_seconds)
         raise RuntimeExecutionError(f"Timed out waiting for prompt {prompt_id}")
+
+    def cancel_owned_prompt(self, prompt_id: str) -> None:
+        """Cancel only this submitted job (supported by the pinned 0.34.2 server)."""
+        try:
+            uuid.UUID(prompt_id)
+            for route, payload in (
+                ("/queue", {"delete": [prompt_id]}),
+                ("/interrupt", {"prompt_id": prompt_id}),
+            ):
+                response = httpx.post(f"{self.base_url}{route}", json=payload, timeout=self.timeout)
+                response.raise_for_status()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RuntimeExecutionError("Could not confirm cancellation of the owned ComfyUI job") from exc
 
     def status(self) -> dict:
         return {

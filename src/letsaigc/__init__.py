@@ -1,3 +1,3 @@
-"""LetsAIGC local-first project harness."""
+"""Agent-driven game asset generation workbench."""
 
 __version__ = "0.1.0"

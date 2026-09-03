@@ -1,6 +1,6 @@
 # Implementation Plan: [FEATURE]
 
-**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
+**Feature ID**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
 **Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
 
 **Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/plan-template.md` for the execution workflow.
@@ -27,19 +27,27 @@
 **Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]  
 **Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
 **License Lanes**: [production/conditional/restricted dependencies and export policy or NEEDS CLARIFICATION]  
-**Resource Budget**: [VRAM, RAM, disk, network, runtime budgets or NEEDS CLARIFICATION]  
+**Resource Budget**: [VRAM, RAM, disk, network, runtime, and for temporal media: dimensions, FPS, frame count, duration and temporary disk or NEEDS CLARIFICATION]  
 **Provenance**: [required revisions, hashes, manifests, DVC/MLflow records or NEEDS CLARIFICATION]
+**Approval Boundary**: [immutable execution envelope, invalidation rules, and prohibited Agent capabilities or N/A]
+**Credential and Input Safety**: [secret source/redaction plus untrusted URL/media controls or N/A]
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-- Reproducibility: revisions, hashes, seeds, environment, and outputs are captured.
+- Control-plane boundary: Development Harness artifacts are not described or
+  implemented as product runtime features.
+- Reproducibility: revisions, hashes, seeds, environment, approval, budget usage,
+  provider request evidence, and outputs are captured.
 - License segregation: every model has a lane and production export policy.
-- Local-first budget: the RTX 3080 10 GiB baseline is respected or an explicit
-  provider-neutral runpack boundary is documented.
-- Workflow as code: public contracts and UI/API workflow forms are versioned.
+- Local-first budget: local capability is preferred; GPU and paid-provider plans
+  have per-iteration and total limits before approval.
+- Constrained workflow as code: public contracts, recipes, compilers, and UI/API
+  workflow forms are versioned; Agents cannot execute arbitrary graphs.
 - Provenance and quality: DVC/MLflow ownership and automated/human gates are defined.
+- Agent authority: tools are allowlisted and sequential, inputs are untrusted,
+  secrets are redacted, and download/train/approve/export capabilities are absent.
 
 ## Project Structure
 

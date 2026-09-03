@@ -1,6 +1,6 @@
 # Feature Specification: Workflow Runner and Evaluation
 
-**Feature Branch**: `003-workflow-runner-and-evaluation`  
+**Feature ID**: `003-workflow-runner-and-evaluation`  
 **Created**: 2026-08-31  
 **Status**: Implemented; human production approval remains operator-owned
 

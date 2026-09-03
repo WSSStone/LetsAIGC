@@ -1,0 +1,20 @@
+schema_version: 1
+id: wan22-i2v-experimental
+version: 0.1.0
+intent: image_to_video
+stability: experimental
+base_workflow: configs/workflows/blocks/wan22-i2v.json
+models: [wan22-ti2v-5b]
+allowed_nodes: [UNETLoader, CLIPLoader, VAELoader, LoadImage, CLIPTextEncode, Wan22ImageToVideoLatent, KSampler, VAEDecode, CreateVideo, SaveVideo]
+parameter_bounds:
+  prompt: {node: "5", input: text, type: string, min_length: 1, max_length: 2000}
+  negative_prompt: {node: "6", input: text, type: string, max_length: 2000}
+  seed: {node: "8", input: seed, type: integer, minimum: 0}
+  width: {node: "7", input: width, type: integer, minimum: 256, maximum: 512, multiple_of: 32}
+  height: {node: "7", input: height, type: integer, minimum: 256, maximum: 512, multiple_of: 32}
+  frames: {node: "7", input: length, type: integer, minimum: 1, maximum: 17}
+  fps: {node: "10", input: fps, type: number, minimum: 1, maximum: 16}
+  steps: {node: "8", input: steps, type: integer, minimum: 1, maximum: 40}
+mutable_parameters: [prompt, negative_prompt, seed, steps]
+outputs: [{node_id: "11", history_field: images, role: primary_video, media_kind: video, allowed_extensions: [.mp4]}]
+resource_budget: {vram_gib: 10, ram_gib: 48, free_disk_gib: 24, timeout_seconds: 3600}

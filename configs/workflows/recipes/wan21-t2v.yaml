@@ -1,0 +1,20 @@
+schema_version: 1
+id: wan21-t2v
+version: 1.0.0
+intent: text_to_video
+stability: stable
+base_workflow: workflows/api/wan21-t2v-smoke.json
+models: [wan21-t2v-1.3b]
+allowed_nodes: [UNETLoader, CLIPLoader, VAELoader, CLIPTextEncode, EmptyHunyuanLatentVideo, KSampler, VAEDecode, CreateVideo, SaveVideo]
+parameter_bounds:
+  prompt: {node: "4", input: text, type: string, min_length: 1, max_length: 2000}
+  negative_prompt: {node: "5", input: text, type: string, max_length: 2000}
+  seed: {node: "7", input: seed, type: integer, minimum: 0}
+  width: {node: "6", input: width, type: integer, minimum: 256, maximum: 512, multiple_of: 16}
+  height: {node: "6", input: height, type: integer, minimum: 256, maximum: 512, multiple_of: 16}
+  frames: {node: "6", input: length, type: integer, minimum: 1, maximum: 17}
+  fps: {node: "9", input: fps, type: number, minimum: 1, maximum: 16}
+  steps: {node: "7", input: steps, type: integer, minimum: 1, maximum: 40}
+mutable_parameters: [prompt, negative_prompt, seed, steps]
+outputs: [{node_id: "10", history_field: images, role: primary_video, media_kind: video, allowed_extensions: [.mp4]}]
+resource_budget: {vram_gib: 10, ram_gib: 32, free_disk_gib: 12, timeout_seconds: 3600}

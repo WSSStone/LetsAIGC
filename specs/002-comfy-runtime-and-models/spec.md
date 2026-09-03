@@ -1,6 +1,6 @@
 # Feature Specification: Comfy Runtime and Models
 
-**Feature Branch**: `002-comfy-runtime-and-models`  
+**Feature ID**: `002-comfy-runtime-and-models`  
 **Created**: 2026-08-31  
 **Status**: Implemented
 

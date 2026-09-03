@@ -5,17 +5,59 @@
   "additionalProperties": false,
   "required": ["schema_version", "run_id", "kind", "status", "created_at", "source", "parameters", "environment", "outputs", "governance"],
   "properties": {
-    "schema_version": {"const": "1.0"},
+    "schema_version": {"enum": ["1.0", "1.1"]},
     "run_id": {"type": "string", "minLength": 1},
-    "kind": {"enum": ["inference", "evaluation", "training"]},
+    "kind": {"enum": ["inference", "evaluation", "training", "video_generation", "sprite_pipeline", "drama_render"]},
     "status": {"enum": ["created", "validated", "queued", "running", "succeeded", "failed", "cancelled"]},
     "created_at": {"type": "string", "format": "date-time"},
     "source": {"type": "object"},
     "parameters": {"type": "object"},
     "environment": {"type": "object"},
-    "outputs": {"type": "array", "items": {"type": "object", "required": ["path", "sha256"], "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}}},
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {"type": "string"},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "size_bytes": {"type": ["integer", "null"], "minimum": 0},
+          "role": {"type": ["string", "null"]},
+          "media_kind": {"enum": ["image", "video", "audio", "subtitle", "frames", "metadata", null]},
+          "media": {"type": ["object", "null"]},
+          "derived_from_run_id": {"type": ["string", "null"]},
+          "derived_from_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "parent_run_id": {"type": ["string", "null"]},
+    "source_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sha256"],
+        "properties": {
+          "run_id": {"type": ["string", "null"]},
+          "role": {"type": ["string", "null"]},
+          "path": {"type": ["string", "null"]},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
     "tracking": {"type": "object"},
-    "governance": {"type": "object", "required": ["license_lanes", "validations", "human_approved"], "properties": {"license_lanes": {"type": "array", "items": {"enum": ["production", "conditional", "restricted"]}}, "validations": {"type": "object", "additionalProperties": {"type": "boolean"}}, "human_approved": {"type": "boolean"}}},
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["license_lanes", "validations", "human_approved"],
+      "properties": {
+        "license_lanes": {"type": "array", "items": {"enum": ["production", "conditional", "restricted"]}},
+        "validations": {"type": "object", "additionalProperties": {"type": "boolean"}},
+        "human_approved": {"type": "boolean"},
+        "human_review": {"type": ["object", "null"]}
+      }
+    },
     "error": {"type": ["object", "null"]}
   }
 }

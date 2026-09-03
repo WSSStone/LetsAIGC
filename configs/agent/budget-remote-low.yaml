@@ -1,0 +1,5 @@
+max_total_cost_usd: 1.00
+max_iteration_cost_usd: 0.30
+max_total_gpu_minutes: 0
+max_iteration_gpu_minutes: 0
+max_revisions: 3

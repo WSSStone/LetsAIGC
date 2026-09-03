@@ -1,6 +1,6 @@
 # Implementation Plan: LetsAIGC Project Harness
 
-**Branch**: `001-project-harness` | **Date**: 2026-08-31 | **Spec**: [spec.md](./spec.md)  
+**Feature ID**: `001-project-harness` | **Date**: 2026-08-31 | **Spec**: [spec.md](./spec.md)  
 **Input**: Initialize a local-first, reproducible 2D game-asset AIGC workspace.
 
 ## Summary

@@ -1,6 +1,12 @@
 # Feature Specification: LetsAIGC Project Harness
 
-**Feature Branch**: `001-project-harness`  
+> **Historical compatibility note (2026-09-02):** This specification predates the
+> Agent-first product definition and mixes Development Harness governance with
+> foundational product infrastructure. Its name and history are retained for
+> traceability only. New product work MUST NOT extend “harness” as a runtime concept;
+> see features 008–012 and Constitution 2.0.0.
+
+**Feature ID**: `001-project-harness`  
 **Created**: 2026-08-31  
 **Status**: Approved  
 **Input**: Initialize a local-first, reproducible 2D game-asset AIGC engineering
@@ -199,4 +205,3 @@ produces a safe adapter, records its lineage, and successfully loads for inferen
 - Gated model authentication and license acceptance remain interactive owner actions.
 - Cloud providers, 3D, video, and multi-user serving are separate future features.
 - The repository manages pipelines and adapters, not final game-asset binary history.
-

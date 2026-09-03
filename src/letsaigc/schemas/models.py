@@ -5,7 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -64,6 +64,7 @@ class ModelEntry(StrictModel):
     profiles: list[str] = Field(min_length=1)
     resources: ModelResources
     enabled_by_default: bool
+    runtime_status: Literal["qualified", "experimental", "catalog_only"] = "qualified"
 
 
 class Catalog(StrictModel):
@@ -104,6 +105,220 @@ class ResourceBudget(StrictModel):
     ram_gib: float = Field(ge=0)
     free_disk_gib: float = Field(ge=0)
     timeout_seconds: int = Field(gt=0)
+
+
+class TemporalBudget(StrictModel):
+    width: int | None = Field(default=None, gt=0)
+    height: int | None = Field(default=None, gt=0)
+    fps: float | None = Field(default=None, gt=0)
+    frame_count: int | None = Field(default=None, gt=0)
+    duration_seconds: float | None = Field(default=None, gt=0)
+    temporary_disk_gib: float | None = Field(default=None, gt=0)
+
+
+class MediaOutputDeclaration(StrictModel):
+    node_id: str = Field(min_length=1)
+    history_field: str = Field(pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$")
+    role: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    media_kind: Literal["image", "video", "audio", "subtitle", "frames", "metadata"]
+    allowed_extensions: list[str] = Field(min_length=1)
+    required: bool = True
+
+    @field_validator("allowed_extensions")
+    @classmethod
+    def safe_extensions(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            extension = value.lower()
+            if not extension.startswith(".") or any(char in extension for char in "/\\"):
+                raise ValueError("media extensions must be simple dot-prefixed values")
+            normalized.append(extension)
+        return normalized
+
+
+class MediaMetadata(StrictModel):
+    mime_type: str
+    codec: str | None = None
+    pixel_format: str | None = None
+    width: int | None = Field(default=None, gt=0)
+    height: int | None = Field(default=None, gt=0)
+    frame_count: int | None = Field(default=None, ge=0)
+    fps: float | None = Field(default=None, gt=0)
+    duration_seconds: float | None = Field(default=None, ge=0)
+    has_alpha: bool | None = None
+    has_audio: bool = False
+
+
+class SourceArtifact(StrictModel):
+    run_id: str | None = None
+    role: str | None = None
+    path: str | None = None
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class VideoImportMetadata(StrictModel):
+    schema_version: Literal[1] = 1
+    source: str = Field(min_length=1)
+    provider: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    revision: str = Field(min_length=1)
+    license_id: str = Field(min_length=1)
+    license_lane: LicenseLane
+    commercial_use: str = Field(min_length=1)
+    runpack_fingerprint: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    notes: str | None = None
+
+
+class VideoJobReference(StrictModel):
+    logical_name: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class ExpectedMediaOutput(StrictModel):
+    media_kind: Literal["video"] = "video"
+    allowed_extensions: list[str] = Field(min_length=1)
+    width: int | None = Field(default=None, gt=0)
+    height: int | None = Field(default=None, gt=0)
+    max_frames: int | None = Field(default=None, gt=0)
+
+    @field_validator("allowed_extensions")
+    @classmethod
+    def safe_extensions(cls, values: list[str]) -> list[str]:
+        return MediaOutputDeclaration.safe_extensions(values)
+
+
+class VideoJob(StrictModel):
+    schema_version: Literal[1] = 1
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9.-]*$")
+    workflow: str = Field(pattern=r"^[a-z0-9][a-z0-9.-]*$")
+    inputs: dict[str, Any]
+    models: list[str] = Field(min_length=1)
+    references: list[VideoJobReference] = Field(default_factory=list)
+    resource_budget: ResourceBudget
+    expected_output: ExpectedMediaOutput
+
+
+class ChromaKeyConfig(StrictModel):
+    color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    transparent_delta: float = Field(ge=0)
+    opaque_delta: float = Field(gt=0)
+    despill_strength: float = Field(ge=0, le=1)
+    edge_feather_px: float = Field(ge=0, le=8)
+    hard_alpha: bool = False
+
+
+class AnchorConfig(StrictModel):
+    mode: Literal["alpha_bottom_center", "fixed", "manual"]
+    target_x: float = Field(ge=0, le=1)
+    target_y: float = Field(ge=0, le=1)
+    max_raw_drift_fraction: float = Field(ge=0, le=1)
+    max_error_px: float = Field(ge=0)
+
+
+class SpriteValidationConfig(StrictModel):
+    min_foreground_fraction: float = Field(ge=0, le=1)
+    max_foreground_fraction: float = Field(ge=0, le=1)
+    max_border_contact_fraction: float = Field(ge=0, le=1)
+
+
+class SpriteAtlasConfig(StrictModel):
+    max_width: int = Field(gt=0)
+    max_height: int = Field(gt=0)
+    layout: Literal["near_square_row_major"] = "near_square_row_major"
+
+
+class SpriteProfile(StrictModel):
+    schema_version: Literal[1] = 1
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9.-]*$")
+    canvas_width: int = Field(gt=0)
+    canvas_height: int = Field(gt=0)
+    fps: float = Field(gt=0)
+    max_frames: int = Field(gt=0)
+    margin_fraction: float = Field(ge=0, lt=0.5)
+    pixel_art: bool = False
+    background: ChromaKeyConfig
+    anchor: AnchorConfig
+    validation: SpriteValidationConfig
+    atlas: SpriteAtlasConfig
+
+
+class SpriteRect(StrictModel):
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+
+
+class SpriteAnchor(StrictModel):
+    x: float
+    y: float
+    normalized_x: float
+    normalized_y: float
+
+
+class SpriteFrameRecord(StrictModel):
+    index: int = Field(ge=0)
+    filename: str
+    rect: SpriteRect
+    duration_ms: float = Field(gt=0)
+    anchor: SpriteAnchor
+    raw_anchor: SpriteAnchor
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    foreground_fraction: float = Field(ge=0, le=1)
+    border_contact_fraction: float = Field(ge=0, le=1)
+    raw_border_contact_fraction: float = Field(default=0, ge=0, le=1)
+
+
+class SpriteSheetMetadata(StrictModel):
+    schema_version: Literal[1] = 1
+    profile_id: str
+    sheet_filename: str
+    sheet_width: int = Field(gt=0)
+    sheet_height: int = Field(gt=0)
+    columns: int = Field(gt=0)
+    rows: int = Field(gt=0)
+    source_run_id: str | None = None
+    source_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    frames: list[SpriteFrameRecord] = Field(min_length=1)
+    warnings: list[str] = Field(default_factory=list)
+    validations: dict[str, bool]
+
+
+class DramaShot(StrictModel):
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9.-]*$")
+    source_run_id: str | None = None
+    workflow: str | None = None
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    transition: Literal["cut", "fade"] = "cut"
+    fade_seconds: float = Field(default=0.5, gt=0)
+    expected_duration_seconds: float | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def exactly_one_source(self):
+        if bool(self.source_run_id) == bool(self.workflow):
+            raise ValueError("drama shot requires exactly one source_run_id or workflow")
+        return self
+
+
+class DramaProject(StrictModel):
+    schema_version: Literal[1] = 1
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9.-]*$")
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    fps: float = Field(gt=0)
+    shots: list[DramaShot] = Field(min_length=1)
+    character_references: dict[str, str] = Field(default_factory=dict)
+    style_references: list[str] = Field(default_factory=list)
+    audio_path: str | None = None
+    subtitle_path: str | None = None
+    burn_subtitles: bool = False
+
+    @model_validator(mode="after")
+    def unique_shots(self):
+        ids = [shot.id for shot in self.shots]
+        if len(ids) != len(set(ids)):
+            raise ValueError("drama shot ids must be unique")
+        return self
 
 
 class TrainingResourceBudget(StrictModel):
@@ -194,12 +409,20 @@ class WorkflowContract(StrictModel):
     nodes: list[str]
     resource_budget: ResourceBudget
     export_lanes: list[LicenseLane]
+    media_kind: Literal["image", "video"] = "image"
+    outputs: list[MediaOutputDeclaration] = Field(default_factory=list)
+    temporal_budget: TemporalBudget | None = None
 
 
 class RunOutput(StrictModel):
     path: str
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     size_bytes: int | None = Field(default=None, ge=0)
+    role: str | None = None
+    media_kind: Literal["image", "video", "audio", "subtitle", "frames", "metadata"] | None = None
+    media: MediaMetadata | None = None
+    derived_from_run_id: str | None = None
+    derived_from_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class RunGovernance(StrictModel):
@@ -209,18 +432,44 @@ class RunGovernance(StrictModel):
     human_review: dict[str, Any] | None = None
 
 
+class AgentRunMetadata(StrictModel):
+    session_id: str
+    task_id: str
+    iteration_id: str | None = None
+    approval_fingerprint: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    provider_request_id: str | None = None
+    model_snapshot: str | None = None
+    redacted_request_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    input_asset_sha256: list[str] = Field(default_factory=list)
+    budget_usage: dict[str, Any] = Field(default_factory=dict)
+    critic: dict[str, Any] | None = None
+    stop_reason: str | None = None
+
+
 class RunManifest(StrictModel):
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.0", "1.1", "1.2"] = "1.2"
     run_id: str
-    kind: Literal["inference", "evaluation", "training"]
+    kind: Literal[
+        "inference",
+        "evaluation",
+        "training",
+        "video_generation",
+        "sprite_pipeline",
+        "drama_render",
+        "agent_task",
+        "remote_image_generation",
+    ]
     status: Literal["created", "validated", "queued", "running", "succeeded", "failed", "cancelled"]
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     source: dict[str, Any]
     parameters: dict[str, Any]
     environment: dict[str, Any]
     outputs: list[RunOutput] = Field(default_factory=list)
+    parent_run_id: str | None = None
+    source_artifacts: list[SourceArtifact] = Field(default_factory=list)
     tracking: dict[str, Any] = Field(default_factory=dict)
     governance: RunGovernance
+    agent: AgentRunMetadata | None = None
     error: dict[str, Any] | None = None
 
 

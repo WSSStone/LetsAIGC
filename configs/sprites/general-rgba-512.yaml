@@ -1,0 +1,29 @@
+schema_version: 1
+id: general-rgba-512
+canvas_width: 512
+canvas_height: 512
+fps: 12
+max_frames: 24
+margin_fraction: 0.05
+pixel_art: false
+background:
+  color: "#00FF00"
+  transparent_delta: 18
+  opaque_delta: 45
+  despill_strength: 0.75
+  edge_feather_px: 1
+  hard_alpha: false
+anchor:
+  mode: alpha_bottom_center
+  target_x: 0.5
+  target_y: 0.95
+  max_raw_drift_fraction: 0.08
+  max_error_px: 1
+validation:
+  min_foreground_fraction: 0.01
+  max_foreground_fraction: 0.80
+  max_border_contact_fraction: 0.005
+atlas:
+  max_width: 8192
+  max_height: 8192
+  layout: near_square_row_major
