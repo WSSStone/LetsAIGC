@@ -1,8 +1,13 @@
-# UI image search configuration (planned)
+# SearchUIProvider search configuration (planned)
 
 Status: configuration and implementation decision only. The image search adapters,
 acquisition Activity, and UI CLI are not connected yet. Setting these variables
 does not enable image search or make any network request.
+
+Search is one implementation of the domain [UIProvider interface](ui-providers.md).
+`ManualUIProvider` accepts user-supplied images through the same source contract and
+does not initialize search clients or probe their quotas. The SerpApi/Tavily policy
+below is internal to `SearchUIProvider`, not a choice between manual and search inputs.
 
 The game UI workflow will automatically route between SerpApi Google Images and
 Tavily Search using available quota, health and the task's shared budget. Brave is
@@ -21,7 +26,8 @@ Keep secrets in the ignored `.env` or process environment. Process
 environment takes priority over the runtime repository's `.env`; separate Git
 worktrees do not automatically inherit the primary checkout's `.env`.
 
-Implementation belongs in `assets/search.py`, `assets/search_routing.py` and provider modules
+The domain facade belongs in `ui_providers/search.py`. Internal search implementation
+belongs in `assets/search.py`, `assets/search_routing.py` and provider modules
 `assets/providers/serpapi.py` and `assets/providers/tavily.py`, using the existing
 httpx dependency. Freeze the allowed provider set, routing policy/version, request
 limits, provider parameters and pricing assumptions in the pipeline plan.
