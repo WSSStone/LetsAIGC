@@ -8,6 +8,10 @@
 它们约束 Codex 如何开发本项目，不是 LetsAIGC 的产品功能。产品控制面是
 `src/letsaigc`、CLI、配置/schema、生成后端、ComfyUI 与媒体管线。
 
+## 正在实施的游戏 UI 工作流
+
+本项唯一执行入口是 [游戏 UI 实施主计划](C:/Programs/LetsAIGC/.doc/plan/game-ui-analysis-workflow-plan.md)：需求、G00—G12 依赖、当前步骤和验收证据都在同一文件中。旧 UIProvider/搜索说明只作跳转，不再维护另一份任务表。`.doc/` 是主仓库本地资料，独立 worktree 或新机器不会自动带上它；取得该计划后再继续实施。
+
 ## Agent 工作方式
 
 ```text
