@@ -94,7 +94,7 @@ ComfyUI 首次隔离启动触发其既有数据库迁移逻辑：原 user/comfyu
 第一轮收尾时关闭了空闲隔离 ComfyUI；获批后重启该 8189 服务，完成唯一一次生成。测试 Temporal 服务已退出；本地数据库、素材和批准计划保留。以下为同一隔离实例的启动方式：
 
 ~~~powershell
-mamba run -n letsaigc-comfy python .local/runtime/ComfyUI/main.py --listen 127.0.0.1 --port 8189 --models-directory .local/models --output-directory .local/output --input-directory .local/input --user-directory .local/comfy-user --temp-directory .local/comfy-temp --disable-all-custom-nodes --disable-api-nodes --disable-auto-launch
+conda run --no-capture-output -n letsaigc-comfy python .local/runtime/ComfyUI/main.py --listen 127.0.0.1 --port 8189 --models-directory .local/models --output-directory .local/output --input-directory .local/input --user-directory .local/comfy-user --temp-directory .local/comfy-temp --disable-all-custom-nodes --disable-api-nodes --disable-auto-launch
 ~~~
 
 在实现 worktree 中执行上述命令；核心 Worker/验收进程另设 COMFY_URL=http://127.0.0.1:8189。原验收任务已完成，不得以原批准再次生成；新实验须建立新的具体计划。

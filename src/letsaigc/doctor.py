@@ -56,7 +56,7 @@ def _gpu() -> Check:
 def _conda_envs() -> Check:
     try:
         completed = subprocess.run(
-            ["mamba", "env", "list", "--json"],
+            ["conda", "env", "list", "--json"],
             capture_output=True,
             text=True,
             timeout=15,
@@ -74,7 +74,7 @@ def _conda_envs() -> Check:
         )
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
         return Check(
-            "runtime.conda_envs", "fail", "mamba environment query failed", {"error": str(exc)}
+            "runtime.conda_envs", "fail", "conda environment query failed", {"error": str(exc)}
         )
 
 
@@ -130,7 +130,7 @@ def run_doctor() -> dict:
             f"{disk.free / 1024**3:.1f} GiB free at {disk_target}",
         ),
         _gpu(),
-        *[_command(name) for name in ("git", "git-lfs", "mamba")],
+        *[_command(name) for name in ("git", "git-lfs", "conda")],
         _media_tooling(),
         _conda_envs(),
         _port("127.0.0.1", 8188),

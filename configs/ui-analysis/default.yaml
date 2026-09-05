@@ -1,0 +1,27 @@
+schema_version: 1
+policy_version: preview-1
+resources:
+  max_image_bytes: 26214400
+  max_pixels: 32000000
+  max_image_edge: 8192
+  ram_bytes: 25769803776
+  vram_bytes: 10737418240
+  minimum_free_disk_bytes: 17179869184
+  temporary_bytes: 8589934592
+  network_bytes: 1073741824
+  active_seconds: 3600
+  ocr_tile_size: 1024
+  ocr_tile_overlap: 64
+  ocr_max_tiles: 64
+  vlm_longest_edge: 1536
+  vlm_local_views: 3
+limits:
+  query_plans: 1
+  queries: 3
+  search_attempts: 3
+  provider_switches: 2
+  candidates_per_query: 20
+  downloads_per_query: 5
+  vlm_calls_per_image: 4
+  ocr_rereads_per_image: 2
+  generation_revisions: 2

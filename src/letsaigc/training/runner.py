@@ -44,8 +44,9 @@ def build_training_command(
     ignored = {"schema_version", "id", "base_model", "resource_budget", "train_text_encoder"}
     option_names = {"dataset_dir": "train_data_dir"}
     command = [
-        "mamba",
+        "conda",
         "run",
+        "--no-capture-output",
         "-n",
         "letsaigc-train-sdxl",
         "python",
@@ -89,8 +90,9 @@ def _stage_training_dataset(config: dict[str, Any]) -> Path:
 def _validate_adapter(adapter: Path) -> dict[str, Any]:
     completed = subprocess.run(
         [
-            "mamba",
+            "conda",
             "run",
+            "--no-capture-output",
             "-n",
             "letsaigc-train-sdxl",
             "python",

@@ -6,8 +6,8 @@ in the process environment or ignored `.env`; see the
 ComfyUI service or weights. Replace the example image with a file you may use.
 
 ```powershell
-mamba run -n letsaigc-core letsaigc --json doctor
-mamba run -n letsaigc-core letsaigc --json agent plan `
+conda run --no-capture-output -n letsaigc-core letsaigc --json doctor
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent plan `
   "Restyle this as a watercolor item icon" --image C:\assets\potion.png `
   --backend openai --budget configs\agent\budget-remote-low.yaml
 ```

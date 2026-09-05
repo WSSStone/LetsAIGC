@@ -14,23 +14,23 @@ $ModelsRoot = Join-Path $LocalRoot 'models'
 $ComfyCommit = '169fcf35a2fc163fec31338b816503ddac0d3fcf'
 $TrainerCommit = '37a1cbbc5725ed2a3575506e7bd2001c9908ac92'
 
-if (-not (Get-Command mamba -ErrorAction SilentlyContinue)) {
-    throw 'mamba was not found on PATH. Install Miniforge/Mambaforge first.'
+if (-not (Get-Command conda -ErrorAction SilentlyContinue)) {
+    throw 'conda was not found on PATH. Install Miniforge or Miniconda first.'
 }
 
 New-Item -ItemType Directory -Force -Path $LocalRoot, $RuntimeRoot, $LocksRoot, $ModelsRoot | Out-Null
 
-function Test-MambaEnvironment([string]$Name) {
-    $Payload = (& mamba env list --json | ConvertFrom-Json)
+function Test-CondaEnvironment([string]$Name) {
+    $Payload = (& conda env list --json | ConvertFrom-Json)
     return @($Payload.envs | ForEach-Object { Split-Path -Leaf $_ }) -contains $Name
 }
 
-function Sync-MambaEnvironment([string]$Name, [string]$File) {
-    if (Test-MambaEnvironment $Name) {
-        & mamba env update --name $Name --file $File --prune
+function Sync-CondaEnvironment([string]$Name, [string]$File) {
+    if (Test-CondaEnvironment $Name) {
+        & conda env update --name $Name --file $File --prune
     }
     else {
-        & mamba env create --name $Name --file $File
+        & conda env create --name $Name --file $File
     }
 }
 
@@ -38,11 +38,11 @@ Push-Location $RepoRoot
 try {
     switch ($Component) {
         'core' {
-            Sync-MambaEnvironment 'letsaigc-core' 'environment/core.yml'
+            Sync-CondaEnvironment 'letsaigc-core' 'environment/core.yml'
             if ($LASTEXITCODE -ne 0) { throw 'Core environment creation failed.' }
-            & mamba run -n letsaigc-core python -m pip install -e '.[tracking,dev]'
+            & conda run --no-capture-output -n letsaigc-core python -m pip install -e '.[tracking,dev]'
             if ($LASTEXITCODE -ne 0) { throw 'Core project dependency installation failed.' }
-            & mamba run -n letsaigc-core python -m pip freeze |
+            & conda run --no-capture-output -n letsaigc-core python -m pip freeze |
                 Set-Content -Encoding utf8 (Join-Path $LocksRoot 'letsaigc-core.txt')
         }
         'comfy' {
@@ -58,11 +58,11 @@ try {
             $Actual = (& git -C $ComfyPath rev-parse HEAD).Trim()
             if ($Actual -ne $ComfyCommit) { throw "ComfyUI revision mismatch: $Actual" }
 
-            Sync-MambaEnvironment 'letsaigc-comfy' 'environment/comfy.yml'
+            Sync-CondaEnvironment 'letsaigc-comfy' 'environment/comfy.yml'
             if ($LASTEXITCODE -ne 0) { throw 'Comfy environment creation failed.' }
-            & mamba run -n letsaigc-comfy python -m pip install --index-url https://download.pytorch.org/whl/cu130 torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1
+            & conda run --no-capture-output -n letsaigc-comfy python -m pip install --index-url https://download.pytorch.org/whl/cu130 torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1
             if ($LASTEXITCODE -ne 0) { throw 'Comfy PyTorch installation failed.' }
-            & mamba run -n letsaigc-comfy python -m pip install -r (Join-Path $ComfyPath 'requirements.txt')
+            & conda run --no-capture-output -n letsaigc-comfy python -m pip install -r (Join-Path $ComfyPath 'requirements.txt')
             if ($LASTEXITCODE -ne 0) { throw 'ComfyUI dependency installation failed.' }
 
             $EscapedRoot = $LocalRoot.Replace('\', '/')
@@ -79,7 +79,7 @@ letsaigc:
   input: input
   output: output
 "@ | Set-Content -Encoding utf8 (Join-Path $ComfyPath 'extra_model_paths.yaml')
-            & mamba run -n letsaigc-comfy python -m pip freeze |
+            & conda run --no-capture-output -n letsaigc-comfy python -m pip freeze |
                 Set-Content -Encoding utf8 (Join-Path $LocksRoot 'letsaigc-comfy.txt')
         }
         'train' {
@@ -95,19 +95,19 @@ letsaigc:
             $Actual = (& git -C $TrainerPath rev-parse HEAD).Trim()
             if ($Actual -ne $TrainerCommit) { throw "sd-scripts revision mismatch: $Actual" }
 
-            Sync-MambaEnvironment 'letsaigc-train-sdxl' 'environment/train-sdxl.yml'
+            Sync-CondaEnvironment 'letsaigc-train-sdxl' 'environment/train-sdxl.yml'
             if ($LASTEXITCODE -ne 0) { throw 'Training environment creation failed.' }
-            & mamba run -n letsaigc-train-sdxl python -m pip install --index-url https://download.pytorch.org/whl/cu124 torch==2.6.0 torchvision==0.21.0
+            & conda run --no-capture-output -n letsaigc-train-sdxl python -m pip install --index-url https://download.pytorch.org/whl/cu124 torch==2.6.0 torchvision==0.21.0
             if ($LASTEXITCODE -ne 0) { throw 'Training PyTorch installation failed.' }
             Push-Location $TrainerPath
             try {
-                & mamba run -n letsaigc-train-sdxl python -m pip install -r requirements.txt
+                & conda run --no-capture-output -n letsaigc-train-sdxl python -m pip install -r requirements.txt
                 if ($LASTEXITCODE -ne 0) { throw 'sd-scripts dependency installation failed.' }
             }
             finally {
                 Pop-Location
             }
-            & mamba run -n letsaigc-train-sdxl python -m pip freeze |
+            & conda run --no-capture-output -n letsaigc-train-sdxl python -m pip freeze |
                 Set-Content -Encoding utf8 (Join-Path $LocksRoot 'letsaigc-train-sdxl.txt')
         }
     }

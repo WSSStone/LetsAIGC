@@ -2,7 +2,7 @@
 
 ## Runtime isolation
 
-**Decision**: Use three Conda/Mamba environments invoked through `mamba run -n`.
+**Decision**: Use three Conda environments invoked through `conda run --no-capture-output -n`.
 Core and ComfyUI use Python 3.12; sd-scripts uses the conservative Python 3.10
 Windows baseline. PyTorch wheels supply their CUDA runtime; `nvcc`, Docker, WSL and
 a system CUDA Toolkit are not v1 dependencies.

@@ -1,0 +1,16 @@
+name: letsaigc-vision-ocr
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - paddleocr==3.4.0
+      - paddlepaddle==3.2.2
+      - paddlex==3.4.3
+      - pydantic==2.13.5
+      - numpy==2.5.2
+      - Pillow==12.3.0
+      - PyYAML>=6.0,<7
+      - psutil>=5.9,<8
+# Prepare separately; runtime never installs packages or downloads models.

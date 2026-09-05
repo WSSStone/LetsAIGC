@@ -6,7 +6,7 @@ ComfyUI, and SDXL model have been prepared as described in the
 Responses for planning and critique.
 
 ```powershell
-mamba run -n letsaigc-core letsaigc --json agent plan `
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent plan `
   "Create a square stone inventory icon" --backend comfy --budget configs\agent\budget-local.yaml
 ```
 
@@ -14,8 +14,8 @@ Review the returned plan and budget. Copy the top-level `id` into `TASK_ID` and
 `plan_fingerprint` into `FINGERPRINT`; then explicitly execute that exact plan:
 
 ```powershell
-mamba run -n letsaigc-core letsaigc --json agent execute TASK_ID --approve FINGERPRINT
-mamba run -n letsaigc-core letsaigc --json agent inspect TASK_ID
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent execute TASK_ID --approve FINGERPRINT
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent inspect TASK_ID
 ```
 
 Planning stages inputs and records local state but performs no media generation.

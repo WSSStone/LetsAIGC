@@ -1,0 +1,1065 @@
+{
+  "schema_version": 1,
+  "cases": {
+    "hud-en-landscape": {
+      "coordinate_space": "canonical_px_xyxy_exclusive_max",
+      "texts": [
+        {
+          "id": "text-status",
+          "text": "HEALTH  85 / 100",
+          "bbox": [
+            36,
+            34,
+            254,
+            57
+          ],
+          "element_id": "status"
+        },
+        {
+          "id": "text-mission",
+          "text": "DEFEND THE OUTPOST",
+          "bbox": [
+            422,
+            34,
+            692,
+            52
+          ],
+          "element_id": "mission"
+        },
+        {
+          "id": "text-minimap",
+          "text": "NORTH",
+          "bbox": [
+            1036,
+            34,
+            1116,
+            51
+          ],
+          "element_id": "minimap"
+        },
+        {
+          "id": "text-objective",
+          "text": "OBJECTIVE  02 / 03",
+          "bbox": [
+            36,
+            400,
+            245,
+            420
+          ],
+          "element_id": "objective"
+        },
+        {
+          "id": "text-ammo",
+          "text": "AMMO  24 / 120",
+          "bbox": [
+            966,
+            600,
+            1183,
+            623
+          ],
+          "element_id": "ammo"
+        },
+        {
+          "id": "text-action-0",
+          "text": "Q  SHIELD",
+          "bbox": [
+            352,
+            634,
+            445,
+            650
+          ],
+          "element_id": "action-0"
+        },
+        {
+          "id": "text-action-1",
+          "text": "E  HEAL",
+          "bbox": [
+            542,
+            634,
+            612,
+            648
+          ],
+          "element_id": "action-1"
+        },
+        {
+          "id": "text-action-2",
+          "text": "R  RELOAD",
+          "bbox": [
+            732,
+            634,
+            830,
+            648
+          ],
+          "element_id": "action-2"
+        }
+      ],
+      "elements": [
+        {
+          "id": "status",
+          "kind": "bar",
+          "bbox": [
+            24,
+            24,
+            330,
+            112
+          ]
+        },
+        {
+          "id": "mission",
+          "kind": "panel",
+          "bbox": [
+            410,
+            24,
+            810,
+            84
+          ]
+        },
+        {
+          "id": "minimap",
+          "kind": "minimap",
+          "bbox": [
+            1024,
+            24,
+            1256,
+            250
+          ]
+        },
+        {
+          "id": "objective",
+          "kind": "panel",
+          "bbox": [
+            24,
+            390,
+            355,
+            482
+          ]
+        },
+        {
+          "id": "ammo",
+          "kind": "counter",
+          "bbox": [
+            954,
+            590,
+            1256,
+            691
+          ]
+        },
+        {
+          "id": "action-0",
+          "kind": "button",
+          "bbox": [
+            340,
+            624,
+            518,
+            689
+          ]
+        },
+        {
+          "id": "action-1",
+          "kind": "button",
+          "bbox": [
+            530,
+            624,
+            708,
+            689
+          ]
+        },
+        {
+          "id": "action-2",
+          "kind": "button",
+          "bbox": [
+            720,
+            624,
+            898,
+            689
+          ]
+        },
+        {
+          "id": "crosshair",
+          "kind": "crosshair",
+          "bbox": [
+            625,
+            345,
+            656,
+            376
+          ]
+        }
+      ]
+    },
+    "hud-zh-dense": {
+      "coordinate_space": "canonical_px_xyxy_exclusive_max",
+      "texts": [
+        {
+          "id": "text-header",
+          "text": "远征指挥室   第十二回合   资源：金币 1250  木材 680",
+          "bbox": [
+            36,
+            30,
+            687,
+            58
+          ],
+          "element_id": "header"
+        },
+        {
+          "id": "text-row-0-0",
+          "text": "任务列表",
+          "bbox": [
+            38,
+            150,
+            126,
+            171
+          ],
+          "element_id": "row-0-0"
+        },
+        {
+          "id": "text-row-0-1",
+          "text": "守住北侧入口",
+          "bbox": [
+            38,
+            224,
+            170,
+            247
+          ],
+          "element_id": "row-0-1"
+        },
+        {
+          "id": "text-row-0-2",
+          "text": "建造防御工事",
+          "bbox": [
+            38,
+            298,
+            170,
+            321
+          ],
+          "element_id": "row-0-2"
+        },
+        {
+          "id": "text-row-0-3",
+          "text": "收集五份补给",
+          "bbox": [
+            38,
+            372,
+            170,
+            394
+          ],
+          "element_id": "row-0-3"
+        },
+        {
+          "id": "text-row-0-4",
+          "text": "护送侦察小队",
+          "bbox": [
+            38,
+            446,
+            170,
+            468
+          ],
+          "element_id": "row-0-4"
+        },
+        {
+          "id": "text-row-0-5",
+          "text": "奖励：经验 350",
+          "bbox": [
+            38,
+            520,
+            194,
+            541
+          ],
+          "element_id": "row-0-5"
+        },
+        {
+          "id": "text-row-0-6",
+          "text": "倒计时 02:45",
+          "bbox": [
+            38,
+            594,
+            168,
+            616
+          ],
+          "element_id": "row-0-6"
+        },
+        {
+          "id": "text-row-1-0",
+          "text": "部队状态",
+          "bbox": [
+            503,
+            150,
+            591,
+            171
+          ],
+          "element_id": "row-1-0"
+        },
+        {
+          "id": "text-row-1-1",
+          "text": "步兵  80 / 100",
+          "bbox": [
+            503,
+            224,
+            649,
+            245
+          ],
+          "element_id": "row-1-1"
+        },
+        {
+          "id": "text-row-1-2",
+          "text": "弓兵  60 / 80",
+          "bbox": [
+            503,
+            298,
+            636,
+            319
+          ],
+          "element_id": "row-1-2"
+        },
+        {
+          "id": "text-row-1-3",
+          "text": "骑兵  24 / 30",
+          "bbox": [
+            503,
+            372,
+            636,
+            393
+          ],
+          "element_id": "row-1-3"
+        },
+        {
+          "id": "text-row-1-4",
+          "text": "法师  12 / 20",
+          "bbox": [
+            503,
+            446,
+            636,
+            468
+          ],
+          "element_id": "row-1-4"
+        },
+        {
+          "id": "text-row-1-5",
+          "text": "士气：稳定",
+          "bbox": [
+            503,
+            520,
+            613,
+            542
+          ],
+          "element_id": "row-1-5"
+        },
+        {
+          "id": "text-row-1-6",
+          "text": "补给：充足",
+          "bbox": [
+            503,
+            594,
+            613,
+            615
+          ],
+          "element_id": "row-1-6"
+        },
+        {
+          "id": "text-row-2-0",
+          "text": "战斗日志",
+          "bbox": [
+            968,
+            150,
+            1056,
+            171
+          ],
+          "element_id": "row-2-0"
+        },
+        {
+          "id": "text-row-2-1",
+          "text": "发现敌方巡逻队",
+          "bbox": [
+            968,
+            224,
+            1122,
+            247
+          ],
+          "element_id": "row-2-1"
+        },
+        {
+          "id": "text-row-2-2",
+          "text": "防御塔建造完成",
+          "bbox": [
+            968,
+            298,
+            1122,
+            321
+          ],
+          "element_id": "row-2-2"
+        },
+        {
+          "id": "text-row-2-3",
+          "text": "治疗技能已就绪",
+          "bbox": [
+            968,
+            372,
+            1122,
+            394
+          ],
+          "element_id": "row-2-3"
+        },
+        {
+          "id": "text-row-2-4",
+          "text": "侦察报告已送达",
+          "bbox": [
+            968,
+            446,
+            1122,
+            468
+          ],
+          "element_id": "row-2-4"
+        },
+        {
+          "id": "text-row-2-5",
+          "text": "天气：多云",
+          "bbox": [
+            968,
+            520,
+            1078,
+            541
+          ],
+          "element_id": "row-2-5"
+        },
+        {
+          "id": "text-row-2-6",
+          "text": "地形：丘陵",
+          "bbox": [
+            968,
+            594,
+            1078,
+            615
+          ],
+          "element_id": "row-2-6"
+        },
+        {
+          "id": "text-action-0",
+          "text": "编队",
+          "bbox": [
+            38,
+            790,
+            86,
+            814
+          ],
+          "element_id": "action-0"
+        },
+        {
+          "id": "text-action-1",
+          "text": "建造",
+          "bbox": [
+            271,
+            790,
+            319,
+            813
+          ],
+          "element_id": "action-1"
+        },
+        {
+          "id": "text-action-2",
+          "text": "科技",
+          "bbox": [
+            504,
+            790,
+            552,
+            813
+          ],
+          "element_id": "action-2"
+        },
+        {
+          "id": "text-action-3",
+          "text": "背包",
+          "bbox": [
+            737,
+            790,
+            785,
+            813
+          ],
+          "element_id": "action-3"
+        },
+        {
+          "id": "text-action-4",
+          "text": "地图",
+          "bbox": [
+            970,
+            790,
+            1018,
+            812
+          ],
+          "element_id": "action-4"
+        },
+        {
+          "id": "text-action-5",
+          "text": "结束回合",
+          "bbox": [
+            1203,
+            790,
+            1299,
+            813
+          ],
+          "element_id": "action-5"
+        }
+      ],
+      "elements": [
+        {
+          "id": "header",
+          "kind": "panel",
+          "bbox": [
+            24,
+            20,
+            1416,
+            86
+          ]
+        },
+        {
+          "id": "row-0-0",
+          "kind": "panel",
+          "bbox": [
+            26,
+            140,
+            461,
+            200
+          ]
+        },
+        {
+          "id": "row-0-1",
+          "kind": "panel",
+          "bbox": [
+            26,
+            214,
+            461,
+            274
+          ]
+        },
+        {
+          "id": "row-0-2",
+          "kind": "panel",
+          "bbox": [
+            26,
+            288,
+            461,
+            348
+          ]
+        },
+        {
+          "id": "row-0-3",
+          "kind": "panel",
+          "bbox": [
+            26,
+            362,
+            461,
+            422
+          ]
+        },
+        {
+          "id": "row-0-4",
+          "kind": "panel",
+          "bbox": [
+            26,
+            436,
+            461,
+            496
+          ]
+        },
+        {
+          "id": "row-0-5",
+          "kind": "panel",
+          "bbox": [
+            26,
+            510,
+            461,
+            570
+          ]
+        },
+        {
+          "id": "row-0-6",
+          "kind": "panel",
+          "bbox": [
+            26,
+            584,
+            461,
+            644
+          ]
+        },
+        {
+          "id": "row-1-0",
+          "kind": "panel",
+          "bbox": [
+            491,
+            140,
+            926,
+            200
+          ]
+        },
+        {
+          "id": "row-1-1",
+          "kind": "panel",
+          "bbox": [
+            491,
+            214,
+            926,
+            274
+          ]
+        },
+        {
+          "id": "row-1-2",
+          "kind": "panel",
+          "bbox": [
+            491,
+            288,
+            926,
+            348
+          ]
+        },
+        {
+          "id": "row-1-3",
+          "kind": "panel",
+          "bbox": [
+            491,
+            362,
+            926,
+            422
+          ]
+        },
+        {
+          "id": "row-1-4",
+          "kind": "panel",
+          "bbox": [
+            491,
+            436,
+            926,
+            496
+          ]
+        },
+        {
+          "id": "row-1-5",
+          "kind": "panel",
+          "bbox": [
+            491,
+            510,
+            926,
+            570
+          ]
+        },
+        {
+          "id": "row-1-6",
+          "kind": "panel",
+          "bbox": [
+            491,
+            584,
+            926,
+            644
+          ]
+        },
+        {
+          "id": "row-2-0",
+          "kind": "panel",
+          "bbox": [
+            956,
+            140,
+            1391,
+            200
+          ]
+        },
+        {
+          "id": "row-2-1",
+          "kind": "panel",
+          "bbox": [
+            956,
+            214,
+            1391,
+            274
+          ]
+        },
+        {
+          "id": "row-2-2",
+          "kind": "panel",
+          "bbox": [
+            956,
+            288,
+            1391,
+            348
+          ]
+        },
+        {
+          "id": "row-2-3",
+          "kind": "panel",
+          "bbox": [
+            956,
+            362,
+            1391,
+            422
+          ]
+        },
+        {
+          "id": "row-2-4",
+          "kind": "panel",
+          "bbox": [
+            956,
+            436,
+            1391,
+            496
+          ]
+        },
+        {
+          "id": "row-2-5",
+          "kind": "panel",
+          "bbox": [
+            956,
+            510,
+            1391,
+            570
+          ]
+        },
+        {
+          "id": "row-2-6",
+          "kind": "panel",
+          "bbox": [
+            956,
+            584,
+            1391,
+            644
+          ]
+        },
+        {
+          "id": "action-0",
+          "kind": "button",
+          "bbox": [
+            26,
+            780,
+            241,
+            866
+          ]
+        },
+        {
+          "id": "action-1",
+          "kind": "button",
+          "bbox": [
+            259,
+            780,
+            474,
+            866
+          ]
+        },
+        {
+          "id": "action-2",
+          "kind": "button",
+          "bbox": [
+            492,
+            780,
+            707,
+            866
+          ]
+        },
+        {
+          "id": "action-3",
+          "kind": "button",
+          "bbox": [
+            725,
+            780,
+            940,
+            866
+          ]
+        },
+        {
+          "id": "action-4",
+          "kind": "button",
+          "bbox": [
+            958,
+            780,
+            1173,
+            866
+          ]
+        },
+        {
+          "id": "action-5",
+          "kind": "button",
+          "bbox": [
+            1191,
+            780,
+            1406,
+            866
+          ]
+        }
+      ]
+    },
+    "hud-portrait": {
+      "coordinate_space": "canonical_px_xyxy_exclusive_max",
+      "texts": [
+        {
+          "id": "text-header",
+          "text": "星港探索   LEVEL 08",
+          "bbox": [
+            32,
+            32,
+            285,
+            60
+          ],
+          "element_id": "header"
+        },
+        {
+          "id": "text-energy",
+          "text": "能量  68 / 100",
+          "bbox": [
+            32,
+            118,
+            181,
+            140
+          ],
+          "element_id": "energy"
+        },
+        {
+          "id": "text-credits",
+          "text": "金币  2350",
+          "bbox": [
+            377,
+            118,
+            489,
+            139
+          ],
+          "element_id": "credits"
+        },
+        {
+          "id": "text-minimap",
+          "text": "区域 A-03",
+          "bbox": [
+            474,
+            200,
+            576,
+            221
+          ],
+          "element_id": "minimap"
+        },
+        {
+          "id": "text-mission",
+          "text": "当前目标：找到能源核心",
+          "bbox": [
+            32,
+            485,
+            318,
+            511
+          ],
+          "element_id": "mission"
+        },
+        {
+          "id": "text-status-0",
+          "text": "探索进度  3 / 5",
+          "bbox": [
+            32,
+            605,
+            194,
+            628
+          ],
+          "element_id": "status-0"
+        },
+        {
+          "id": "text-status-1",
+          "text": "护盾  120",
+          "bbox": [
+            32,
+            685,
+            136,
+            707
+          ],
+          "element_id": "status-1"
+        },
+        {
+          "id": "text-status-2",
+          "text": "氧气剩余  04:20",
+          "bbox": [
+            32,
+            765,
+            204,
+            789
+          ],
+          "element_id": "status-2"
+        },
+        {
+          "id": "text-confirm",
+          "text": "开始探索",
+          "bbox": [
+            152,
+            965,
+            272,
+            995
+          ],
+          "element_id": "confirm"
+        },
+        {
+          "id": "text-tab-0",
+          "text": "任务",
+          "bbox": [
+            32,
+            1150,
+            84,
+            1175
+          ],
+          "element_id": "tab-0"
+        },
+        {
+          "id": "text-tab-1",
+          "text": "装备",
+          "bbox": [
+            206,
+            1150,
+            258,
+            1176
+          ],
+          "element_id": "tab-1"
+        },
+        {
+          "id": "text-tab-2",
+          "text": "地图",
+          "bbox": [
+            380,
+            1150,
+            432,
+            1174
+          ],
+          "element_id": "tab-2"
+        },
+        {
+          "id": "text-tab-3",
+          "text": "设置",
+          "bbox": [
+            554,
+            1150,
+            606,
+            1173
+          ],
+          "element_id": "tab-3"
+        }
+      ],
+      "elements": [
+        {
+          "id": "header",
+          "kind": "panel",
+          "bbox": [
+            20,
+            22,
+            700,
+            89
+          ]
+        },
+        {
+          "id": "energy",
+          "kind": "bar",
+          "bbox": [
+            20,
+            108,
+            338,
+            164
+          ]
+        },
+        {
+          "id": "credits",
+          "kind": "counter",
+          "bbox": [
+            365,
+            108,
+            700,
+            164
+          ]
+        },
+        {
+          "id": "minimap",
+          "kind": "minimap",
+          "bbox": [
+            462,
+            190,
+            700,
+            440
+          ]
+        },
+        {
+          "id": "mission",
+          "kind": "panel",
+          "bbox": [
+            20,
+            475,
+            700,
+            540
+          ]
+        },
+        {
+          "id": "status-0",
+          "kind": "panel",
+          "bbox": [
+            20,
+            595,
+            405,
+            659
+          ]
+        },
+        {
+          "id": "status-1",
+          "kind": "panel",
+          "bbox": [
+            20,
+            675,
+            405,
+            739
+          ]
+        },
+        {
+          "id": "status-2",
+          "kind": "panel",
+          "bbox": [
+            20,
+            755,
+            405,
+            819
+          ]
+        },
+        {
+          "id": "confirm",
+          "kind": "button",
+          "bbox": [
+            140,
+            955,
+            580,
+            1041
+          ]
+        },
+        {
+          "id": "tab-0",
+          "kind": "button",
+          "bbox": [
+            20,
+            1140,
+            178,
+            1245
+          ]
+        },
+        {
+          "id": "tab-1",
+          "kind": "button",
+          "bbox": [
+            194,
+            1140,
+            352,
+            1245
+          ]
+        },
+        {
+          "id": "tab-2",
+          "kind": "button",
+          "bbox": [
+            368,
+            1140,
+            526,
+            1245
+          ]
+        },
+        {
+          "id": "tab-3",
+          "kind": "button",
+          "bbox": [
+            542,
+            1140,
+            700,
+            1245
+          ]
+        }
+      ]
+    }
+  }
+}

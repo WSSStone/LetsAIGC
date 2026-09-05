@@ -113,3 +113,35 @@ def add_output(
 
 def file_sha256_or_none(path: Path) -> str | None:
     return sha256_file(path) if path.is_file() else None
+
+
+def create_ui_manifest(service, plan, outputs, *, evidence_kind: str = "runtime"):
+    """UI evidence projection uses references; it never embeds source or model bodies."""
+    from ..pipelines.errors import PipelineError
+    from ..schemas.pipeline import ArtifactRef, canonical_json, validate_payload
+
+    if evidence_kind not in {"offline", "runtime"}:
+        raise PipelineError("invalid_evidence_kind")
+    refs = [ArtifactRef.model_validate(ref.model_dump(mode="json")) for ref in outputs]
+    for ref in refs:
+        if ref.task_id != plan.task_id:
+            raise PipelineError("artifact_scope")
+        service.artifacts.read(ref)
+    operations = [operation.model_dump(mode="json") for operation in service.ledger.list_operations(plan.task_id)]
+    operations_ref = service.artifacts.put(
+        plan.task_id, "project", canonical_json(operations).encode(), role="operation_index"
+    )
+    manifest = {
+        "schema_version": 1, "kind": "ui_analysis", "task_id": plan.task_id,
+        "plan_fingerprint": plan.fingerprint, "workflow_type": plan.workflow_type,
+        "workflow_version": plan.workflow_version, "quality_status": "pending", "evidence_kind": evidence_kind,
+        "git_commit": _git(["rev-parse", "HEAD"]), "python": sys.version.split()[0],
+        "inputs": [ref.model_dump(mode="json") for ref in plan.inputs],
+        "policies": plan.parameters, "outputs": [ref.model_dump(mode="json") for ref in refs],
+        "budget": plan.envelope.budget.model_dump(mode="json"),
+        "usage": {name: value.model_dump(mode="json") for name, value in service.ledger.usage(plan.task_id).items()},
+        "operations_ref": operations_ref.model_dump(mode="json"),
+        "production_export_approved": False,
+    }
+    validate_payload(manifest)
+    return service.artifacts.put(plan.task_id, "project", canonical_json(manifest).encode(), role="manifest")

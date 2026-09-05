@@ -28,11 +28,13 @@ from .sprites import build_sprite_sequence, validate_sprite_run
 from .tracking import load_manifest, save_manifest
 from .tracking.runtime import serve_mlflow
 from .training import run_sdxl_lora
+from .ui_analysis.cli import ui_app
 from .workflows import WorkflowRunner
 
 app = typer.Typer(no_args_is_help=True, help="Agent-driven game asset generation workbench")
 app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(runtime_app, name="runtime")
+app.add_typer(ui_app, name="ui")
 agent_app = typer.Typer(no_args_is_help=True, help="Plan, approve, execute, and inspect Agent tasks")
 models_app = typer.Typer(no_args_is_help=True)
 comfy_app = typer.Typer(no_args_is_help=True)

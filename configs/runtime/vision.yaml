@@ -1,0 +1,11 @@
+schema_version: 1
+ocr:
+  endpoint: http://127.0.0.1:8766
+  device: cpu
+  token_env: LETSAIGC_VISION_TOKEN
+  signing_key_env: LETSAIGC_VISION_SIGNING_KEY
+  artifact_root: .local/pipelines/artifacts
+  job_root: .local/vision/ocr/jobs
+  cache_root: .local/cache/paddlex
+  lock: configs/runtime/vision.lock.yaml
+  maximum_active_jobs: 1

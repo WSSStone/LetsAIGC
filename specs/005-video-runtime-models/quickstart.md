@@ -11,18 +11,18 @@
 ffmpeg -version
 ffprobe -version
 
-mamba run -n letsaigc-core letsaigc --json doctor
-mamba run -n letsaigc-core letsaigc models sync video-local-smoke
+conda run --no-capture-output -n letsaigc-core letsaigc --json doctor
+conda run --no-capture-output -n letsaigc-core letsaigc models sync video-local-smoke
 
 # With local ComfyUI running on 127.0.0.1:8188:
-mamba run -n letsaigc-core letsaigc --json video run wan21-t2v-smoke --set prompt="game character walking on pure green background"
+conda run --no-capture-output -n letsaigc-core letsaigc --json video run wan21-t2v-smoke --set prompt="game character walking on pure green background"
 
 # Register an external clip with auditable metadata.
-mamba run -n letsaigc-core letsaigc --json video import .\clip.mp4 --metadata .\clip.metadata.yaml
+conda run --no-capture-output -n letsaigc-core letsaigc --json video import .\clip.mp4 --metadata .\clip.metadata.yaml
 
 # Build for stronger hardware and later ingest its result.
-mamba run -n letsaigc-core letsaigc --json runpack build --job configs\video\wan22-cloud-job.yaml
-mamba run -n letsaigc-core letsaigc --json runpack ingest .local\runpacks\JOB_ID --result .\result.mp4 --metadata .\result.yaml
+conda run --no-capture-output -n letsaigc-core letsaigc --json runpack build --job configs\video\wan22-cloud-job.yaml
+conda run --no-capture-output -n letsaigc-core letsaigc --json runpack ingest .local\runpacks\JOB_ID --result .\result.mp4 --metadata .\result.yaml
 ```
 
 Hardware-dependent commands may report a missing model or unavailable ComfyUI until the operator completes model download and starts the locked runtime. CPU-only tests validate probing, imports and runpack integrity without those prerequisites.

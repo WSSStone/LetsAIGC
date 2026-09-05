@@ -1,8 +1,8 @@
 # Quickstart: Verify the Boundary
 
 ```powershell
-mamba run -n letsaigc-core letsaigc --help
-mamba run -n letsaigc-core pytest
+conda run --no-capture-output -n letsaigc-core letsaigc --help
+conda run --no-capture-output -n letsaigc-core pytest
 ```
 
 Confirm README names the product a workbench, all expert groups remain visible,

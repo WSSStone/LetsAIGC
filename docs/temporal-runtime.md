@@ -1,6 +1,6 @@
 # Temporal 本机持久化运行
 
-本版本在现有生成工具之上增加可选的 Temporal 执行层。旧 Agent 命令继续可用；游戏 UI 解析工作流属于后续项目，本版本未实现该业务流程。
+本版本在现有生成工具之上增加可选的 Temporal 执行层。旧 Agent 命令继续可用；当前开发分支另已接通[游戏 UI 单图解析](game-ui-analysis.md)，其真实预览验收尚未完成。
 
 支持 Python 3.12、Temporal Python SDK 1.32.0、CLI 1.8.3（内含 Server 1.31.2、UI 2.50.1）。版本、官方下载地址与 SHA-256 记录在 configs/runtime/temporal.lock.yaml。这些是本机开发服务验证版本，不代表高可用生产部署已经验收。
 
@@ -9,7 +9,7 @@
 - Workflow 只编排、等待消息和计时，不访问文件、数据库、网络或模型。
 - Activity 使用显式注册的能力。单任务顺序调用；跨任务的 GPU 所有权在 SQLite 事务内协调。
 - Temporal 历史决定流程推进；SQLite 保存批准、操作、费用与资源所有权；manifest 和 MLflow 是可重建的证据投影。
-- 目前注册 temporal_smoke（模拟生产与有限修订）、comfy_generation（一次受限 ComfyUI 生成）。
+- 目前注册 temporal_smoke（模拟生产与有限修订）、comfy_generation（一次受限 ComfyUI 生成），以及开发中的 ui_analysis（手动/搜索单图 parse）。
 - Comfy 计划从既有 GenerationPlan **复制为新的 pipeline-… 逻辑任务**，不迁移正在执行的旧 AgentStore 任务；旧执行器不会读取这个新任务的账本。
 - v1 的 GPU 所有权协调覆盖使用同一账本的 Pipeline Worker。旧 Agent、直接 ComfyUI API 和外部程序不参与该账本；试点 GPU 需交给这组 Worker 独占使用。
 - Agent 能力清单不包含批准、shell、任意写入、训练、模型下载或生产导出。
@@ -19,8 +19,8 @@
 在仓库根目录操作，使用 letsaigc-core 环境：
 
 ~~~powershell
-mamba run -n letsaigc-core python -m pip install ".[temporal]"
-mamba run -n letsaigc-core letsaigc runtime doctor
+conda run --no-capture-output -n letsaigc-core python -m pip install ".[temporal]"
+conda run --no-capture-output -n letsaigc-core letsaigc runtime doctor
 ~~~
 
 独立 worktree 的开发验证可设置 $env:PYTHONPATH = Join-Path (Get-Location) 'src'，避免使用指向另一个 checkout 的 editable 安装。不要安装到全局 Python。
@@ -30,7 +30,7 @@ mamba run -n letsaigc-core letsaigc runtime doctor
 在一个终端显式启动持久化开发服务：
 
 ~~~powershell
-mamba run -n letsaigc-core letsaigc runtime dev-server --binary .local/runtime/temporal/temporal.exe
+conda run --no-capture-output -n letsaigc-core letsaigc runtime dev-server --binary .local/runtime/temporal/temporal.exe
 ~~~
 
 默认数据库是 .local/pipelines/temporal-dev.sqlite，服务地址 127.0.0.1:7233，UI 绑定 127.0.0.1。可用 --database 指定另一个本地磁盘文件。此命令在前台运行，退出后再次使用同一个数据库启动即可恢复服务历史。不要使用网络共享盘存放这些 SQLite 文件。
@@ -38,7 +38,7 @@ mamba run -n letsaigc-core letsaigc runtime dev-server --binary .local/runtime/t
 在第二个终端启动 Worker：
 
 ~~~powershell
-mamba run -n letsaigc-core letsaigc runtime worker
+conda run --no-capture-output -n letsaigc-core letsaigc runtime worker
 ~~~
 
 configs/runtime/temporal.yaml 控制地址、namespace、task queue、Activity 并发、超时上限、轮询间隔、Continue-As-New 阈值和 MLflow 投影。v1 只接受回环地址，不提供远程无认证批准 API。
@@ -46,10 +46,10 @@ configs/runtime/temporal.yaml 控制地址、namespace、task queue、Activity �
 ## 3. 跑通免费模拟流程
 
 ~~~powershell
-mamba run -n letsaigc-core letsaigc pipeline plan --task-id demo-temporal --revisions 2 --accept-after 2
-mamba run -n letsaigc-core letsaigc pipeline start demo-temporal
-mamba run -n letsaigc-core letsaigc pipeline inspect demo-temporal
-mamba run -n letsaigc-core letsaigc pipeline approve demo-temporal --fingerprint <plan 输出的完整 SHA-256>
+conda run --no-capture-output -n letsaigc-core letsaigc pipeline plan --task-id demo-temporal --revisions 2 --accept-after 2
+conda run --no-capture-output -n letsaigc-core letsaigc pipeline start demo-temporal
+conda run --no-capture-output -n letsaigc-core letsaigc pipeline inspect demo-temporal
+conda run --no-capture-output -n letsaigc-core letsaigc pipeline approve demo-temporal --fingerprint '<plan 输出的完整 SHA-256>'
 ~~~
 
 模拟任务同样经过批准状态机，但不访问模型、不产生 GPU 费用。示例生成三次模拟结果，在 revision 2 接受。业务修订与网络重试有不同的操作键。
@@ -65,7 +65,7 @@ mamba run -n letsaigc-core letsaigc pipeline approve demo-temporal --fingerprint
 示例文件 configs/pipelines/temporal-sd15-smoke.json 使用 SD1.5、512×512、2 steps、固定 seed、一个输出、零修订，单次及总 GPU 预算均为 2 分钟，美元预算为 0：
 
 ~~~powershell
-mamba run -n letsaigc-core letsaigc pipeline plan --generation-plan configs/pipelines/temporal-sd15-smoke.json
+conda run --no-capture-output -n letsaigc-core letsaigc pipeline plan --generation-plan configs/pipelines/temporal-sd15-smoke.json
 ~~~
 
 输出新的 Pipeline task ID 和指纹。审核生成参数、模型、依赖、预算和许可条件后，使用上节的 start / approve 命令。plan 本身不提交生成。
@@ -101,12 +101,12 @@ ComfyUI /prompt 不提供本适配器可依赖的幂等键。适配器在 extra_
 查询与人工操作：
 
 ~~~powershell
-mamba run -n letsaigc-core letsaigc pipeline inspect <task-id>
-mamba run -n letsaigc-core letsaigc pipeline inspect <task-id> --local
-mamba run -n letsaigc-core letsaigc pipeline reject <task-id> --fingerprint <fingerprint>
-mamba run -n letsaigc-core letsaigc pipeline cancel <task-id>
-mamba run -n letsaigc-core letsaigc pipeline reconcile <task-id>
-mamba run -n letsaigc-core letsaigc pipeline rebuild-projection <task-id>
+conda run --no-capture-output -n letsaigc-core letsaigc pipeline inspect '<task-id>'
+conda run --no-capture-output -n letsaigc-core letsaigc pipeline inspect '<task-id>' --local
+conda run --no-capture-output -n letsaigc-core letsaigc pipeline reject '<task-id>' --fingerprint '<fingerprint>'
+conda run --no-capture-output -n letsaigc-core letsaigc pipeline cancel '<task-id>'
+conda run --no-capture-output -n letsaigc-core letsaigc pipeline reconcile '<task-id>'
+conda run --no-capture-output -n letsaigc-core letsaigc pipeline rebuild-projection '<task-id>'
 ~~~
 
 --local 返回可能滞后的投影，明确标记来源。reconcile 重新查询/收集，不提供强制清零、替换计划或盲目重提的入口。无法证实的请求需要保留记录并调查提供方证据，不能删除数据库或手工释放 GPU 所有权来“恢复运行”。
@@ -152,14 +152,13 @@ Continue-As-New 在有界查询次数后携带 PipelineRun、批准状态、取�
 默认测试不会调用 GPU；运行服务测试须显式提供已验证的本地 CLI，不会自动联网下载测试服务器。
 
 ~~~powershell
-mamba run -n letsaigc-core pytest -m "not runtime and not gpu"
+conda run --no-capture-output -n letsaigc-core pytest -m "not runtime and not gpu"
 $env:LETSAIGC_TEMPORAL_TEST_CLI = (Resolve-Path .local/runtime/temporal/temporal.exe).Path
-mamba run -n letsaigc-core pytest -m "runtime and not gpu" -k temporal
-mamba run -n letsaigc-core pytest
-mamba run -n letsaigc-core ruff check .
+conda run --no-capture-output -n letsaigc-core pytest -m "runtime and not gpu" -k temporal
+conda run --no-capture-output -n letsaigc-core pytest
+conda run --no-capture-output -n letsaigc-core ruff check .
 ~~~
 
 真实 GPU 测试额外要求 LETSAIGC_TEMPORAL_GPU_PLAN 指向已冻结并保存在对应 PipelineService 根目录的 PipelinePlan JSON，LETSAIGC_TEMPORAL_GPU_APPROVAL 是用户批准的完整指纹；然后运行 pytest -m gpu -k temporal。测试拒绝复用已有 operation 的 GPU 验收任务。先对账失败/未知尝试，再为下一次实验建立新的具体批准计划。
 
 故障覆盖与本次执行结果见 [验收记录](temporal-validation.md)。真实适配器协议测试、模拟故障测试和实际 GPU 验收分别记录，不能互相替代。
-

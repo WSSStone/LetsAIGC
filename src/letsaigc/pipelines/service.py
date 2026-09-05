@@ -27,14 +27,18 @@ from .simulation import SimulationBackend
 
 
 class PipelineService:
-    def __init__(self, root: Path, *, backends: dict | None = None, mlflow_enabled: bool = False) -> None:
+    def __init__(
+        self, root: Path, *, backends: dict | None = None, mlflow_enabled: bool = False, ui_schema: bool = False
+    ) -> None:
         self.root = root.resolve()
         self.artifacts = ArtifactStore(self.root / "artifacts")
-        self.ledger = Ledger(self.root / "ledger.sqlite")
+        self.ledger = Ledger(self.root / "ledger.sqlite", initialize_ui=ui_schema)
         self.backends = backends or {}
         self.mlflow_enabled = mlflow_enabled
 
     def backend(self, plan: PipelinePlan):
+        if plan.workflow_type == "ui_analysis":
+            raise PipelineError("invalid_step", "UI workflows must use the registered step entrypoint")
         capability = validate_registration(plan)
         if capability.id not in self.backends:
             if capability.id == "simulation.generate":
@@ -147,6 +151,10 @@ class PipelineService:
         if fingerprint != plan.fingerprint:
             raise PipelineError("plan_changed", "Plan fingerprint does not match the persisted task")
         validate_registration(plan)
+        if plan.workflow_type == "ui_analysis" and verify_inputs:
+            from .registry import validate_ui_registration
+
+            validate_ui_registration(plan, self.artifacts)
         if not verify_inputs:
             return plan
         for ref in plan.inputs:
@@ -326,3 +334,181 @@ class PipelineService:
                 pass
         self.ledger.uncertain(key)
         return False
+
+    def ui_plan(self, task_id: str, request) -> PipelinePlan:
+        """Trusted local planning only; input references must already belong to the task."""
+        from ..schemas.ui import UIAnalysisRequest, UIEvaluationPolicy, UIPolicy
+        from .registry import ui_capabilities, validate_ui_registration
+
+        request = UIAnalysisRequest.model_validate(request.model_dump(mode="json"))
+        with self.ledger.transaction() as db:
+            if db.execute("PRAGMA user_version").fetchone()[0] not in {2, 3}:
+                raise PipelineError("migration_required", "Stop writers and migrate the UI ledger to v2")
+        for ref in request.references():
+            if ref.task_id != task_id:
+                raise PipelineError("artifact_scope")
+            self.artifacts.read(ref)
+        policy = UIPolicy(resources=request.resources, limits=request.limits)
+        params = {
+            name + "_ref": self.artifacts.put(task_id, "plan", canonical_json(value).encode(), role=name).model_dump(
+                mode="json"
+            )
+            for name, value in {"request": request, "policy": policy, "evaluation": UIEvaluationPolicy()}.items()
+        }
+        plan = PipelinePlan(
+            task_id=task_id,
+            workflow_type="ui_analysis",
+            parameters=params,
+            inputs=request.references(),
+            envelope=ApprovalEnvelope(
+                stage="analysis", allowed_capabilities=ui_capabilities(request), budget=request.budget
+            ),
+        )
+        validate_ui_registration(plan, self.artifacts)
+        self.ledger.register(plan)
+        return plan
+
+    def ui_backend(self, plan: PipelinePlan, binding):
+        from .registry import resolve_ui_step
+
+        capability = resolve_ui_step(plan, binding)
+        backend = self.backends.get(capability.id)
+        if backend is None:
+            raise PipelineError("capability_not_ready", "The requested UI capability is not configured")
+        if backend.capability.id != capability.id:
+            raise PipelineError("prohibited_capability")
+        return backend
+
+    def submit_step(self, plan: PipelinePlan, binding, reservation: Cost) -> OperationRecord:
+        from ..schemas.ui import UIStepBinding
+        from .registry import validate_ui_registration
+
+        binding = UIStepBinding.model_validate(binding.model_dump(mode="json"))
+        plan = self.checked_plan(plan.task_id, plan.fingerprint)
+        request = validate_ui_registration(plan, self.artifacts)
+        if binding.outputs:
+            raise PipelineError("invalid_step", "A submission cannot supply its own result references")
+        for ref in [*binding.inputs, *([binding.parameters_ref] if binding.parameters_ref else [])]:
+            self.artifacts.read(ref)
+        backend = self.ui_backend(plan, binding)
+        try:
+            operation = self.ledger.reserve(
+                plan,
+                binding.step_id,
+                binding.revision,
+                reservation,
+                resource=backend.capability.resource,
+                ui_binding=binding,
+                ui_request=request,
+            )
+        except PipelineError as exc:
+            if exc.code in {"iteration_budget", "total_budget"}:
+                raise PipelineError(
+                    "budget_insufficient", "The next operation does not fit the remaining budget"
+                ) from None
+            raise
+        if operation.state in {"succeeded", "failed", "submitted", "running"}:
+            for item in operation.result.get("artifacts", []):
+                self.artifacts.read(ArtifactRef.model_validate(item))
+            return operation
+        if operation.state != "prepared" or not self.ledger.begin_submit(operation.operation_id):
+            return self.recover_step(plan, operation.operation_id)
+        try:
+            receipt = backend.submit(operation.operation_id, {"binding": binding.model_dump(mode="json")})
+            return self.ledger.submitted(operation.operation_id, receipt.request_id, {"receipt": receipt.metadata})
+        except Exception:
+            self.ledger.uncertain(operation.operation_id)
+            raise OutcomeUnknown() from None
+
+    def recover_step(self, plan: PipelinePlan, key: str) -> OperationRecord:
+        operation = self.ledger.get(key)
+        if operation.task_id != plan.task_id:
+            raise PipelineError("operation_scope")
+        binding = self.ledger.ui_binding(key)
+        backend = self.ui_backend(plan, binding)
+        if operation.state in {"succeeded", "failed", "submitted", "running"} or operation.provider_request_id:
+            return operation
+        try:
+            recover = getattr(backend, "recover", None)
+            receipt = recover(key) if recover else None
+            if receipt is not None:
+                return self.ledger.submitted(key, receipt.request_id, {"receipt": receipt.metadata})
+        except Exception:
+            pass
+        self.ledger.uncertain(key)
+        raise OutcomeUnknown()
+
+    def observe_step(self, plan: PipelinePlan, key: str) -> OperationRecord:
+        from ..schemas.ui import UIObservation
+
+        operation = self.ledger.get(key)
+        if operation.task_id != plan.task_id:
+            raise PipelineError("operation_scope")
+        if operation.state in {"succeeded", "failed"}:
+            return operation
+        if not operation.provider_request_id:
+            operation = self.recover_step(plan, key)
+        binding = self.ledger.ui_binding(key)
+        receipt = Submission(request_id=operation.provider_request_id, metadata=operation.result.get("receipt", {}))
+        try:
+            observed = self.ui_backend(plan, binding).inspect(receipt)
+            observed = UIObservation.model_validate(observed.model_dump(mode="json"))
+        except Exception:
+            self.ledger.uncertain(key)
+            raise OutcomeUnknown() from None
+        if observed.state == "unknown" or (observed.state in {"succeeded", "failed"} and observed.actual is None):
+            self.ledger.uncertain(key)
+            raise OutcomeUnknown()
+        result = {**operation.result, "observation": observed.model_dump(mode="json")}
+        validate_payload(result)
+        with self.ledger.transaction() as db:
+            db.execute(
+                "UPDATE operations SET state='running',result=? WHERE operation_id=? "
+                "AND state NOT IN ('succeeded','failed')",
+                (canonical_json(result), key),
+            )
+        return self.ledger.get(key)
+
+    def collect_step(self, plan: PipelinePlan, key: str) -> OperationRecord:
+        from ..schemas.ui import UIObservation
+        from .registry import UI_OUTPUT_ROLES
+
+        operation = self.ledger.get(key)
+        if operation.task_id != plan.task_id:
+            raise PipelineError("operation_scope")
+        if operation.state in {"succeeded", "failed"}:
+            for item in operation.result.get("artifacts", []):
+                self.artifacts.read(ArtifactRef.model_validate(item))
+            return operation
+        observed = UIObservation.model_validate(
+            operation.result.get("observation", {"state": "unknown", "actual": None})
+        )
+        if observed.state not in {"succeeded", "failed"}:
+            raise PipelineError("operation_pending")
+        if observed.actual is None:
+            self.ledger.uncertain(key)
+            raise OutcomeUnknown()
+        binding = self.ledger.ui_binding(key)
+        outputs = []
+        if observed.state == "succeeded":
+            receipt = Submission(request_id=operation.provider_request_id, metadata=operation.result.get("receipt", {}))
+            try:
+                for role, data, media_type in self.ui_backend(plan, binding).collect(receipt):
+                    if role not in UI_OUTPUT_ROLES[binding.capability] or len(outputs) >= 32:
+                        raise PipelineError("invalid_output", "UI outputs require registered roles and bounded indexes")
+                    outputs.append(
+                        self.artifacts.put(
+                            plan.task_id,
+                            key,
+                            data,
+                            role=role,
+                            media_type=media_type,
+                            source_ids=[ref.artifact_id for ref in binding.inputs],
+                        ).model_dump(mode="json")
+                    )
+            except Exception:
+                self.ledger.uncertain(key)
+                raise OutcomeUnknown() from None
+        return self.ledger.finish_ui(
+            key, observed.actual, {**operation.result, "artifacts": outputs}, failed=observed.state == "failed"
+        )

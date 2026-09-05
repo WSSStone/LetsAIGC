@@ -3,16 +3,16 @@
 ## 入口与前提
 
 LetsAIGC 的 Agent 是产品；Speckit/Codex 的 Development Harness 只约束开发。
-保留现有专家命令。以下命令从仓库根目录在 PowerShell 执行，Miniforge/Mamba
+保留现有专家命令。以下命令从仓库根目录在 PowerShell 执行，Miniforge 或 Miniconda
 需已在 PATH。首次安装先创建核心环境：
 
 ```powershell
 .\scripts\bootstrap.ps1 -Component core
-mamba run -n letsaigc-core letsaigc --json doctor
-mamba run -n letsaigc-core letsaigc agent --help
+conda run --no-capture-output -n letsaigc-core letsaigc --json doctor
+conda run --no-capture-output -n letsaigc-core letsaigc agent --help
 ```
 
-已有核心环境时，可用 `mamba run -n letsaigc-core python -m pip install -e .`
+已有核心环境时，可用 `conda run --no-capture-output -n letsaigc-core python -m pip install -e .`
 更新可编辑安装，无需安装到全局 Python。
 
 用户自行在进程环境或忽略的 `.env`（参见 `.env.example`）配置 `LLM_API_KEY`，可选
@@ -54,29 +54,29 @@ mamba run -n letsaigc-core letsaigc agent --help
 
 ```powershell
 .\scripts\bootstrap.ps1 -Component comfy
-mamba run -n letsaigc-core letsaigc models sync production-sdxl
-mamba run -n letsaigc-core letsaigc comfy serve
+conda run --no-capture-output -n letsaigc-core letsaigc models sync production-sdxl
+conda run --no-capture-output -n letsaigc-core letsaigc comfy serve
 ```
 
 保持服务终端运行，在另一个终端从仓库根目录执行以下步骤。Agent 不启动服务、
 不下载模型。图片编辑示例中的本地路径需替换为用户有权使用的文件。
 
 ```powershell
-mamba run -n letsaigc-core letsaigc --json agent plan `
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent plan `
   "一个居中的蓝色药水图标" --backend comfy --budget configs/agent/budget-local.yaml
 ```
 
 先按“规划结果与批准”检查返回值并替换占位符，再执行：
 
 ```powershell
-mamba run -n letsaigc-core letsaigc --json agent execute TASK_ID --approve PLAN_FINGERPRINT
-mamba run -n letsaigc-core letsaigc --json agent inspect TASK_ID
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent execute TASK_ID --approve PLAN_FINGERPRINT
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent inspect TASK_ID
 ```
 
 以下图片编辑会创建另一个待批准任务：
 
 ```powershell
-mamba run -n letsaigc-core letsaigc --json agent plan `
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent plan `
   "保留轮廓，改成水彩风格，denoise 0.45" --image C:/assets/potion.png `
   --backend comfy --budget configs/agent/budget-local.yaml
 ```
@@ -100,11 +100,11 @@ ComfyUI 生成。`plan` 不产生编译图，当前 CLI 没有独立“只编译
 或模型权重。下面 `agent run` 会在展示计划后询问是否执行，`agent plan` 则只返回计划。
 
 ```powershell
-mamba run -n letsaigc-core letsaigc agent run `
+conda run --no-capture-output -n letsaigc-core letsaigc agent run `
   "透明背景的药水图标，低质量 1024x1024" --backend openai `
   --budget configs/agent/budget-remote-low.yaml
 
-mamba run -n letsaigc-core letsaigc --json agent plan `
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent plan `
   "保持形状，把药水改成紫色" --image https://example.org/potion.png `
   --backend openai --budget configs/agent/budget-remote-low.yaml
 ```
@@ -124,15 +124,15 @@ low/medium/high、auto/opaque/transparent。定价版本过期后必须人工复
 由操作者同步 Wan2.1 后再规划：
 
 ```powershell
-mamba run -n letsaigc-core letsaigc models sync video-local-smoke
+conda run --no-capture-output -n letsaigc-core letsaigc models sync video-local-smoke
 ```
 
 ```powershell
-mamba run -n letsaigc-core letsaigc --json agent plan `
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent plan `
   "生成绿色背景上的史莱姆跳跃视频，512x512，17帧，16 FPS" `
   --backend comfy --budget configs/agent/budget-local.yaml
 
-mamba run -n letsaigc-core letsaigc --json agent plan `
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent plan `
   "把运行 VIDEO_RUN_ID 制作成序列帧，profile 使用 configs/sprites/general-rgba-512.yaml" `
   --budget configs/agent/budget-local.yaml
 ```

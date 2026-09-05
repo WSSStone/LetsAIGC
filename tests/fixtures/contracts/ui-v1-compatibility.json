@@ -1,0 +1,40 @@
+{
+  "plan": {
+    "schema_version": 1,
+    "task_id": "v1-golden",
+    "workflow_type": "temporal_smoke",
+    "workflow_version": "1",
+    "executor": "temporal",
+    "inputs": [],
+    "generation_plan": null,
+    "envelope": {
+      "stage": "generation",
+      "allowed_capabilities": [
+        "simulation.generate"
+      ],
+      "budget": {
+        "max_total_cost_usd": 1.0,
+        "max_iteration_cost_usd": 0.6,
+        "max_total_gpu_minutes": 0.0,
+        "max_iteration_gpu_minutes": 0.0,
+        "max_revisions": 2
+      },
+      "mutable_parameters": []
+    },
+    "estimated_iteration": {
+      "cost_usd": 0.0,
+      "gpu_minutes": 0.0
+    },
+    "parameters": {},
+    "dependency_hashes": {}
+  },
+  "canonical": "{\"dependency_hashes\":{},\"envelope\":{\"allowed_capabilities\":[\"simulation.generate\"],\"budget\":{\"max_iteration_cost_usd\":0.6,\"max_iteration_gpu_minutes\":0.0,\"max_revisions\":2,\"max_total_cost_usd\":1.0,\"max_total_gpu_minutes\":0.0},\"mutable_parameters\":[],\"stage\":\"generation\"},\"estimated_iteration\":{\"cost_usd\":0.0,\"gpu_minutes\":0.0},\"executor\":\"temporal\",\"generation_plan\":null,\"inputs\":[],\"parameters\":{},\"schema_version\":1,\"task_id\":\"v1-golden\",\"workflow_type\":\"temporal_smoke\",\"workflow_version\":\"1\"}",
+  "fingerprint": "63e024eeea43d00754d6c0bda06db087ed811e62cb889bb1c74e6f1ca4ab18e8",
+  "operation_id": "op-2db2a66101744232fbd2b073470638de6a9e327d978504c0",
+  "cli_commands": [
+    "agent",
+    "pipeline",
+    "models",
+    "runtime"
+  ]
+}

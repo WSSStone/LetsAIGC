@@ -16,8 +16,9 @@ def serve(*, host: str = "127.0.0.1", port: int = 8188) -> int:
         raise ReadinessError("ComfyUI is not deployed; bootstrap the comfy component first")
     root = find_repo_root()
     command = [
-        "mamba",
+        "conda",
         "run",
+        "--no-capture-output",
         "-n",
         "letsaigc-comfy",
         "python",

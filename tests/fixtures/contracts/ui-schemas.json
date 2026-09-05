@@ -1,0 +1,29 @@
+{
+  "request": {
+    "schema_version": 1,
+    "input": {
+      "kind": "manual",
+      "inputs": [
+        {
+          "schema_version": 1,
+          "task_id": "ui-test",
+          "artifact_id": "source-1",
+          "key": "ui-test/input/source",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "size_bytes": 1,
+          "media_type": "image/png",
+          "role": "original",
+          "operation_id": "intake",
+          "source_ids": []
+        }
+      ]
+    },
+    "budget": {
+      "max_total_cost_usd": 1.0,
+      "max_iteration_cost_usd": 0.6,
+      "max_total_gpu_minutes": 0.0,
+      "max_iteration_gpu_minutes": 0.0,
+      "max_revisions": 2
+    }
+  }
+}

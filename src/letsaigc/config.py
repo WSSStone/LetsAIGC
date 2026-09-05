@@ -63,7 +63,7 @@ def get_url_setting(name: str, default: str | None = None) -> str | None:
     if value is None:
         return None
     if "://" not in value or value.split("://", 1)[1] == "":
-        raise ValidationError(f"Environment variable {name} must be an absolute URL: {value!r}")
+        raise ValidationError(f"Environment variable {name} must be an absolute URL")
     return value
 
 

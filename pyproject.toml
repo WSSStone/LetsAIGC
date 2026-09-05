@@ -37,7 +37,11 @@ packages = ["src/letsaigc"]
 pythonpath = ["src"]
 addopts = "-ra --strict-markers"
 testpaths = ["tests"]
-markers = ["runtime: requires a deployed local runtime", "gpu: requires NVIDIA GPU"]
+markers = [
+  "runtime: requires a deployed local runtime",
+  "gpu: requires NVIDIA GPU",
+  "ui_live: UI external acceptance; requires --ui-live and task-specific approval",
+]
 
 [tool.ruff]
 target-version = "py312"

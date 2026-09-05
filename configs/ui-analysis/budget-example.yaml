@@ -1,0 +1,6 @@
+# Example only; execution still requires a concrete plan and exact approval.
+max_total_cost_usd: 1.00
+max_iteration_cost_usd: 0.25
+max_total_gpu_minutes: 0
+max_iteration_gpu_minutes: 0
+max_revisions: 2

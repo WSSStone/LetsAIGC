@@ -20,7 +20,7 @@
 
 **Rationale**: The user explicitly chose the registered command-line installation. Reproducibility comes from capability checks plus captured resolved path/version/build and normalized arguments, not from installing another environment.
 
-**Alternatives considered**: A dedicated Mamba environment was more reproducible but contradicted the selected operating model; bundling a binary adds packaging and redistribution concerns.
+**Alternatives considered**: A dedicated Conda environment was more reproducible but contradicted the selected operating model; bundling a binary adds packaging and redistribution concerns.
 
 ## Decision: Declared output mappings supersede heuristic video scanning
 
@@ -29,4 +29,3 @@
 ## Decision: Runpacks use canonical request fingerprints
 
 **Rationale**: Provider neutrality requires data contracts, not provider SDKs. A canonical JSON SHA-256 binds workflow, model identifiers, references, parameters and expected output constraints to imported result metadata without including credentials or weights.
-

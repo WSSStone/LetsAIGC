@@ -1,0 +1,51 @@
+schema_version: 1
+routing:
+  schema_version: 1
+  mode: quota_aware
+  allowed_providers: [serpapi, tavily]
+  preferred_provider: serpapi
+  allow_payg: false
+  serpapi_no_cache: true
+  refresh_seconds: 75
+  snapshot_ttl_seconds: 300
+  max_probes_per_provider: 2
+  probes_per_ten_minutes: 10
+  low_watermark: 0.1
+  return_watermark: 0.2
+  max_attempts: 3
+  max_switches: 2
+criteria:
+  schema_version: 1
+  minimum_width: 128
+  minimum_height: 128
+  minimum_aspect_ratio: 0.1
+  maximum_aspect_ratio: 10
+  perceptual_hash: dct-64-v1
+  duplicate_distance: 6
+  minimum_contrast: 2
+# Public bounds are reference values, not an account billing attestation.
+# An operator must bind the actual account unit price and reviewed terms.
+pricing:
+  serpapi:
+    schema_version: 1
+    provider: serpapi
+    search_upper_usd: 0.025
+    search_unit_usd: null
+    search_basis: https://serpapi.com/pricing
+    probe_upper_usd: 0
+    probe_actual_usd: 0
+    probe_basis: https://serpapi.com/account-api
+    terms_version: null
+    reviewed_until: '2026-09-30'
+  tavily:
+    schema_version: 1
+    provider: tavily
+    search_upper_usd: 0.008
+    search_unit_usd: null
+    search_basis: https://docs.tavily.com/documentation/api-credits
+    # The Usage reference does not establish a monetary charge; never assume free.
+    probe_upper_usd: null
+    probe_actual_usd: null
+    probe_basis: null
+    terms_version: null
+    reviewed_until: '2026-09-30'

@@ -46,12 +46,12 @@ Agent-first 重构为 `008-agent-first-architecture` 至
 
 ### 核心环境准备
 
-以下命令从仓库根目录在 PowerShell 执行，前提是 Miniforge/Mamba 已安装且在 PATH。
+以下命令从仓库根目录在 PowerShell 执行，前提是 Miniforge 或 Miniconda 已安装且 `conda` 在 PATH。
 
 ```powershell
 .\scripts\bootstrap.ps1 -Component core
-mamba run -n letsaigc-core letsaigc --json doctor
-mamba run -n letsaigc-core letsaigc agent --help
+conda run --no-capture-output -n letsaigc-core letsaigc --json doctor
+conda run --no-capture-output -n letsaigc-core letsaigc agent --help
 ```
 
 在进程环境或被 Git 忽略的 `.env`（参见 `.env.example`）中配置 `LLM_API_KEY`，可选
@@ -71,14 +71,14 @@ function tool、vision data URL 与图片接口。本地媒体生成的 Agent �
 
 ```powershell
 .\scripts\bootstrap.ps1 -Component comfy
-mamba run -n letsaigc-core letsaigc models sync production-sdxl
-mamba run -n letsaigc-core letsaigc comfy serve
+conda run --no-capture-output -n letsaigc-core letsaigc models sync production-sdxl
+conda run --no-capture-output -n letsaigc-core letsaigc comfy serve
 ```
 
 保持服务终端运行，在另一终端从仓库根目录规划任务：
 
 ```powershell
-mamba run -n letsaigc-core letsaigc --json agent plan `
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent plan `
   "生成一个居中的蓝色药水游戏图标" `
   --backend comfy --budget configs\agent\budget-local.yaml
 ```
@@ -87,21 +87,21 @@ mamba run -n letsaigc-core letsaigc --json agent plan `
 用顶层 `plan_fingerprint` 替换 `PLAN_FINGERPRINT`，确认后执行：
 
 ```powershell
-mamba run -n letsaigc-core letsaigc --json agent execute TASK_ID `
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent execute TASK_ID `
   --approve PLAN_FINGERPRINT
-mamba run -n letsaigc-core letsaigc --json agent inspect TASK_ID
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent inspect TASK_ID
 ```
 
 远端图片：使用已配置的凭据和远端预算即可，无需本地 ComfyUI 或模型权重。
 下面的计划也须检查返回值后，按上述方式单独批准执行。
 
 ```powershell
-mamba run -n letsaigc-core letsaigc --json agent plan `
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent plan `
   "生成一个透明背景的魔法药水游戏图标，低质量 1024x1024" `
   --backend openai --budget configs\agent\budget-remote-low.yaml
 
 # 本地图片编辑：先完成本地 SDXL 准备，并替换示例图片路径。
-mamba run -n letsaigc-core letsaigc --json agent plan `
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent plan `
   "保留轮廓，把它改成水彩道具图标" --image C:\assets\potion.png `
   --backend comfy --budget configs\agent\budget-local.yaml
 ```
@@ -116,29 +116,29 @@ mamba run -n letsaigc-core letsaigc --json agent plan `
 相应模型、服务和资源；生成完成后仍须通过生产门禁。
 
 ```powershell
-mamba run -n letsaigc-core letsaigc workflow run sdxl-smoke
+conda run --no-capture-output -n letsaigc-core letsaigc workflow run sdxl-smoke
 # MLflow 前台服务，可在独立终端运行。
-mamba run -n letsaigc-core letsaigc tracking serve
+conda run --no-capture-output -n letsaigc-core letsaigc tracking serve
 ```
 
 视频与序列帧示例：
 
 ```powershell
 # FFmpeg/ffprobe 由用户维护在系统 PATH；ComfyUI 需已在 127.0.0.1:8188 运行。
-mamba run -n letsaigc-core letsaigc models sync video-local-smoke
-mamba run -n letsaigc-core letsaigc --json video run wan21-t2v-smoke
+conda run --no-capture-output -n letsaigc-core letsaigc models sync video-local-smoke
+conda run --no-capture-output -n letsaigc-core letsaigc --json video run wan21-t2v-smoke
 
 # 从有谱系的视频运行派生 RGBA 帧、Sprite Sheet 和 JSON。
-mamba run -n letsaigc-core letsaigc --json sprites build `
+conda run --no-capture-output -n letsaigc-core letsaigc --json sprites build `
   --source-run VIDEO_RUN_ID --config configs\sprites\general-rgba-512.yaml
-mamba run -n letsaigc-core letsaigc --json sprites validate SPRITE_RUN_ID
+conda run --no-capture-output -n letsaigc-core letsaigc --json sprites validate SPRITE_RUN_ID
 
 # 短剧项目支持已记录镜头、内联工作流、外部 WAV/SRT 和内容寻址续跑。
-mamba run -n letsaigc-core letsaigc --json drama render `
+conda run --no-capture-output -n letsaigc-core letsaigc --json drama render `
   --project configs\drama\example.yaml --resume
 
 # 高规格任务只打包声明、工作流和契约，不携带权重、秘密或绝对路径。
-mamba run -n letsaigc-core letsaigc --json runpack build `
+conda run --no-capture-output -n letsaigc-core letsaigc --json runpack build `
   --job configs\video\wan22-cloud-job.yaml
 ```
 

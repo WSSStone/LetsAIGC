@@ -5,7 +5,7 @@ ComfyUI service, and SDXL model using the [Agent guide](../../docs/agent-quickst
 Replace the example image with a file you may use.
 
 ```powershell
-mamba run -n letsaigc-core letsaigc --json agent plan `
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent plan `
   "Create an SDXL variation" --image C:\assets\input.png `
   --backend comfy --budget configs\agent\budget-local.yaml
 ```
@@ -18,8 +18,8 @@ Review the plan and budget. Replace `TASK_ID` and `FINGERPRINT` with the returne
 top-level `id` and `plan_fingerprint`, then explicitly execute:
 
 ```powershell
-mamba run -n letsaigc-core letsaigc --json agent execute TASK_ID --approve FINGERPRINT
-mamba run -n letsaigc-core letsaigc --json agent inspect TASK_ID
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent execute TASK_ID --approve FINGERPRINT
+conda run --no-capture-output -n letsaigc-core letsaigc --json agent inspect TASK_ID
 ```
 
 Execution verifies models, uploads the validated input, compiles and validates the

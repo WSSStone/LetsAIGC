@@ -1,0 +1,45 @@
+schema_version: 1
+acceptance_status: development_only
+generator_version: 1
+pillow_version: 12.3.0
+font_sha256: d79c55e68b1131eea0cc1c47be4f572d964f28c682e143db2ad09c1e4cb07a3f
+cases:
+- case_id: hud-en-landscape
+  group_id: synthetic-1
+  file: hud-en-landscape.png
+  sha256: fe7cfc531a883900acdca2369e6e785cea44517d0c0a7a49e85e6ee6f0ba70de
+  size:
+  - 1280
+  - 720
+  language: en
+  orientation: landscape
+  split: development
+  source_kind: original_synthetic_ui
+  license_id: project-owned-test-fixture
+  known_background: false
+- case_id: hud-zh-dense
+  group_id: synthetic-2
+  file: hud-zh-dense.png
+  sha256: cbb015a212af8c22811f3a2d08def2174f37e6045345977c6bd90c0f5205bfa4
+  size:
+  - 1440
+  - 900
+  language: zh
+  orientation: landscape
+  split: development
+  source_kind: original_synthetic_ui
+  license_id: project-owned-test-fixture
+  known_background: false
+- case_id: hud-portrait
+  group_id: synthetic-3
+  file: hud-portrait.png
+  sha256: 5d8b023159d5854f9229d1e58973754befb579008f448b63cdf529db2350de0b
+  size:
+  - 720
+  - 1280
+  language: zh
+  orientation: portrait
+  split: development
+  source_kind: original_synthetic_ui
+  license_id: project-owned-test-fixture
+  known_background: false

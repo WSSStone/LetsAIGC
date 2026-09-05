@@ -1,0 +1,1 @@
+"""Allowlisted UI input providers."""
