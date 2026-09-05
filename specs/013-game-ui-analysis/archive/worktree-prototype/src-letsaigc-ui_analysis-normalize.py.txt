@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+from io import BytesIO
+
+import numpy as np
+from PIL import Image, ImageCms, ImageOps
+
+from ..assets.resolver import validate_image_bytes
+from ..assets.store import ArtifactStore
+from ..schemas.pipeline import ArtifactRef
+from ..schemas.ui import ImageView, UILimits
+from .coordinates import exif_matrix
+
+
+def png(image: Image.Image) -> bytes:
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+def normalize(store: ArtifactStore, source: ArtifactRef, operation: str, limits: UILimits) -> dict:
+    content = store.read(source)
+    validate_image_bytes(content, source.media_type)
+    with Image.open(BytesIO(content)) as image:
+        if image.width * image.height > limits.max_pixels:
+            raise ValueError("Image exceeds the requested pixel limit")
+        size = image.size
+        orientation = int(image.getexif().get(274, 1))
+        if orientation not in range(1, 9):
+            raise ValueError("Invalid EXIF orientation")
+        alpha = "A" in image.getbands() or "transparency" in image.info
+        canonical = ImageOps.exif_transpose(image).convert("RGBA" if alpha else "RGB")
+        color_policy = "assumed_srgb_no_embedded_profile"
+        if image.info.get("icc_profile"):
+            profile = ImageCms.ImageCmsProfile(BytesIO(image.info["icc_profile"]))
+            rgb = ImageCms.profileToProfile(canonical.convert("RGB"), profile, ImageCms.createProfile("sRGB"))
+            if alpha:
+                rgb.putalpha(canonical.getchannel("A"))
+            canonical = rgb
+            color_policy = "embedded_profile_converted_to_srgb"
+        canonical.info.clear()
+    ref = store.put(
+        source.task_id,
+        operation,
+        png(canonical),
+        role="canonical",
+        media_type="image/png",
+        source_ids=[source.artifact_id],
+    )
+    matrix = exif_matrix(orientation, *size)
+    return {
+        "image": ref.model_dump(mode="json"),
+        "width": canonical.width,
+        "height": canonical.height,
+        "original_size": size,
+        "exif_orientation": orientation,
+        "original_to_canonical": matrix,
+        "canonical_to_original": np.linalg.inv(matrix).tolist(),
+        "mode": canonical.mode,
+        "color_policy": color_policy,
+    }
+
+
+def make_views(image: Image.Image, limits: UILimits, *, tile_size: int = 1536, overlap: int = 64):
+    if tile_size <= overlap or overlap < 0:
+        raise ValueError("Invalid tile geometry")
+    stride = tile_size - overlap
+    xs = range(0, image.width, stride)
+    ys = range(0, image.height, stride)
+    if 1 + len(xs) * len(ys) > limits.max_views:
+        raise ValueError("Image requires more views than the configured limit")
+    thumb = image.copy()
+    thumb.thumbnail((1536, 1536), Image.Resampling.LANCZOS)
+    result = [
+        (
+            ImageView(
+                id="overview",
+                width=thumb.width,
+                height=thumb.height,
+                scale=(thumb.width / image.width, thumb.height / image.height),
+            ),
+            thumb,
+        )
+    ]
+    for y in ys:
+        for x in xs:
+            crop = image.crop((x, y, min(image.width, x + tile_size), min(image.height, y + tile_size)))
+            result.append((ImageView(id=f"tile-{x}-{y}", width=crop.width, height=crop.height, offset=(x, y)), crop))
+    return result

@@ -1,0 +1,75 @@
+from __future__ import annotations
+
+import math
+
+from ..schemas.ui import Box, ImageView, Point
+
+
+def checked_box(box: Box, width: int, height: int) -> tuple[int, int, int, int]:
+    if not all(math.isfinite(v) for v in box):
+        raise ValueError("Non-finite bounding box")
+    x0, y0, x1, y1 = box
+    if not (0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height):
+        raise ValueError("Bounding box is empty or outside canonical image")
+    return math.floor(x0), math.floor(y0), math.ceil(x1), math.ceil(y1)
+
+
+def checked_polygon(points: list[Point], width: int, height: int) -> list[Point]:
+    if len(points) < 3 or any(not math.isfinite(v) for point in points for v in point):
+        raise ValueError("Invalid polygon")
+    if any(not (0 <= x <= width and 0 <= y <= height) for x, y in points):
+        raise ValueError("Polygon exceeds image bounds")
+    if len({tuple(point) for point in points}) != len(points):
+        raise ValueError("Polygon repeats a vertex")
+    area = sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(points, points[1:] + points[:1], strict=True))
+    if abs(area) < 1e-6:
+        raise ValueError("Zero-area polygon")
+
+    # Reject self-crossing edges; adjacent vertices are allowed to meet.
+    def cross(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    def on_segment(a, b, c):
+        return abs(cross(a, b, c)) < 1e-9 and (
+            min(a[0], b[0]) <= c[0] <= max(a[0], b[0]) and min(a[1], b[1]) <= c[1] <= max(a[1], b[1])
+        )
+
+    edges = list(zip(points, points[1:] + points[:1], strict=True))
+    for i, (a, b) in enumerate(edges):
+        for j, (c, d) in enumerate(edges):
+            if j <= i + 1 or (i == 0 and j == len(edges) - 1):
+                continue
+            if (cross(a, b, c) * cross(a, b, d) < 0 and cross(c, d, a) * cross(c, d, b) < 0) or any(
+                (on_segment(a, b, c), on_segment(a, b, d), on_segment(c, d, a), on_segment(c, d, b))
+            ):
+                raise ValueError("Self-intersecting polygon")
+    return points
+
+
+def map_point(point: Point, view: ImageView, *, inverse: bool = False) -> Point:
+    if inverse:
+        return tuple((point[i] - view.offset[i]) * view.scale[i] for i in range(2))
+    return tuple(point[i] / view.scale[i] + view.offset[i] for i in range(2))
+
+
+def map_box(box: Box, view: ImageView) -> Box:
+    return (*map_point(box[:2], view), *map_point(box[2:], view))
+
+
+def exif_matrix(orientation: int, width: int, height: int) -> list[list[int]]:
+    return {
+        1: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+        2: [[-1, 0, width], [0, 1, 0], [0, 0, 1]],
+        3: [[-1, 0, width], [0, -1, height], [0, 0, 1]],
+        4: [[1, 0, 0], [0, -1, height], [0, 0, 1]],
+        5: [[0, 1, 0], [1, 0, 0], [0, 0, 1]],
+        6: [[0, -1, height], [1, 0, 0], [0, 0, 1]],
+        7: [[0, -1, height], [-1, 0, width], [0, 0, 1]],
+        8: [[0, 1, 0], [-1, 0, width], [0, 0, 1]],
+    }[orientation]
+
+
+def iou(a: Box, b: Box) -> float:
+    area = max(0, min(a[2], b[2]) - max(a[0], b[0])) * max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - area
+    return area / union if union > 0 else 0

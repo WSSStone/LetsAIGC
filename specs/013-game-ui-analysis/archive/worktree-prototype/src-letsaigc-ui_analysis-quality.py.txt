@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+from ..schemas.ui import QualityReport, UILayout
+from .layout import validate_layout
+
+
+def layout_quality(layout: UILayout) -> QualityReport:
+    validate_layout(layout)
+    return QualityReport(
+        checks={
+            "schema": True,
+            "coordinates": True,
+            "references": True,
+            "crops": all(e.crop is not None for e in layout.elements),
+        },
+        issues=["low_confidence_ocr"] if any(t.status == "uncertain" for t in layout.texts) else [],
+    )
+
+
+def character_error_rate(expected: str, actual: str) -> float:
+    row = list(range(len(actual) + 1))
+    for i, x in enumerate(expected, 1):
+        next_row = [i]
+        for j, y in enumerate(actual, 1):
+            next_row.append(min(row[j] + 1, next_row[j - 1] + 1, row[j - 1] + int(x != y)))
+        row = next_row
+    return row[-1] / max(1, len(expected))
