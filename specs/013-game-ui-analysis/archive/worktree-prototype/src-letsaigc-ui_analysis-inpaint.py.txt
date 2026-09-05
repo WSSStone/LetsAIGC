@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+import numpy as np
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
+
+from ..schemas.ui import InpaintSpec, UILayout
+from .coordinates import checked_box
+
+
+def editing_mask(layout: UILayout, masks: dict[str, Image.Image], spec: InpaintSpec, *, text_masks=()) -> Image.Image:
+    region = checked_box(spec.region, layout.width, layout.height)
+    ids = {element.id for element in layout.elements}
+    if not set(spec.remove_ids + spec.preserve_ids) <= ids:
+        raise ValueError("Unknown edit element")
+    selected = spec.remove_ids or [
+        e.id
+        for e in layout.elements
+        if e.id not in spec.preserve_ids
+        and e.bbox[0] < region[2]
+        and e.bbox[2] > region[0]
+        and e.bbox[1] < region[3]
+        and e.bbox[3] > region[1]
+    ]
+    mask = Image.new("L", (layout.width, layout.height))
+    for identity in selected:
+        value = masks.get(identity)
+        if value is None or value.size != mask.size:
+            raise ValueError("A requested element has no valid segmentation mask")
+        mask = ImageChops.lighter(mask, value.convert("L"))
+    for value in text_masks:
+        if value.size != mask.size:
+            raise ValueError("Text mask size mismatch")
+        mask = ImageChops.lighter(mask, value.convert("L"))
+    if spec.dilation:
+        mask = mask.filter(ImageFilter.MaxFilter(2 * spec.dilation + 1))
+    if spec.feather:
+        mask = mask.filter(ImageFilter.GaussianBlur(spec.feather))
+    allowed = Image.new("L", mask.size)
+    ImageDraw.Draw(allowed).rectangle((region[0], region[1], region[2] - 1, region[3] - 1), fill=255)
+    mask = ImageChops.multiply(mask, allowed)
+    for identity in spec.preserve_ids:
+        protected = masks.get(identity)
+        if protected is None or protected.size != mask.size:
+            raise ValueError("Preserved element requires a verified mask")
+        mask = ImageChops.multiply(mask, ImageChops.invert(protected.convert("L").point(lambda x: 255 if x else 0)))
+    if not mask.getbbox():
+        raise ValueError("The effective editing mask is empty")
+    return mask
+
+
+def composite(original: Image.Image, generated: Image.Image, mask: Image.Image) -> Image.Image:
+    if original.size != generated.size or original.size != mask.size or mask.mode != "L":
+        raise ValueError("Canonical image, generated image and L mask must have identical dimensions")
+    source = np.array(original)
+    replacement = np.array(generated.convert(original.mode))
+    weights = np.array(mask, dtype=np.float64) / 255
+    if source.ndim == 3:
+        weights = weights[:, :, None]
+    combined = np.rint(source.astype(float) * (1 - weights) + replacement.astype(float) * weights).astype("uint8")
+    untouched = np.array(mask) == 0
+    combined[untouched] = source[untouched]
+    return Image.fromarray(combined)
+
+
+def outside_unchanged(original: Image.Image, result: Image.Image, mask: Image.Image) -> bool:
+    return (
+        original.size == result.size == mask.size
+        and original.mode == result.mode
+        and np.array_equal(np.array(original)[np.array(mask) == 0], np.array(result)[np.array(mask) == 0])
+    )

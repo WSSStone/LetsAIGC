@@ -1,0 +1,30 @@
+"""Explicit dependency invalidation for bounded, typed local revisions."""
+
+from ..schemas.pipeline import digest
+from ..schemas.ui import RevisionAction
+
+DEPENDENCIES = {
+    "normalize": set(),
+    "ocr": {"normalize"},
+    "analyze": {"normalize", "ocr"},
+    "layout": {"analyze", "ocr"},
+    "segment": {"layout"},
+    "glyphs": {"ocr"},
+    "mask": {"segment", "glyphs"},
+    "inpaint": {"mask"},
+    "review": {"inpaint", "layout"},
+}
+
+
+def affected(action: RevisionAction) -> set[str]:
+    roots = {"reread_text": "ocr", "refine_segment": "segment", "reanalyze_region": "analyze", "regenerate": "inpaint"}
+    result = {roots[action.kind]}
+    while True:
+        expanded = result | {name for name, parents in DEPENDENCIES.items() if parents & result}
+        if expanded == result:
+            return result
+        result = expanded
+
+
+def step_fingerprint(inputs, version: str, parameters) -> str:
+    return digest({"inputs": inputs, "version": version, "parameters": parameters})

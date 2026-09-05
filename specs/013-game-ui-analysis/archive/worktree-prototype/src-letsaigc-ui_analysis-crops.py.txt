@@ -1,0 +1,37 @@
+from io import BytesIO
+
+from PIL import Image, ImageDraw
+
+from ..assets.store import ArtifactStore
+from ..schemas.ui import UILayout
+from .coordinates import checked_box
+from .layout import validate_layout
+from .normalize import png
+
+
+def crops_and_overlay(store: ArtifactStore, layout: UILayout, operation: str):
+    result = validate_layout(layout.model_copy(deep=True))
+    image = Image.open(BytesIO(store.read(layout.image)))
+    overlay = image.convert("RGB")
+    draw = ImageDraw.Draw(overlay)
+    for element in result.elements:
+        box = checked_box(element.bbox, image.width, image.height)
+        element.crop = store.put(
+            layout.image.task_id,
+            operation,
+            png(image.crop(box)),
+            role=f"crop-{element.id}",
+            media_type="image/png",
+            source_ids=[layout.image.artifact_id],
+        )
+        draw.rectangle((box[0], box[1], box[2] - 1, box[3] - 1), outline="red", width=2)
+        draw.text((box[0] + 2, box[1] + 2), element.id[-6:], fill="yellow")
+    ref = store.put(
+        layout.image.task_id,
+        operation,
+        png(overlay),
+        role="layout-overlay",
+        media_type="image/png",
+        source_ids=[layout.image.artifact_id],
+    )
+    return result, ref

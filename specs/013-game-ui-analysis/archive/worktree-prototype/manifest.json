@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "source_branch": "codex/game-ui-analysis-workflow",
+  "source_head": "8a1baddee361b4aa79defd12388891e077522912",
+  "archived_at": "2026-09-05T15:26:47.8236906Z",
+  "files": [
+    {
+      "source": "src\\letsaigc\\schemas\\ui.py",
+      "archive": "specs/013-game-ui-analysis/archive/worktree-prototype/src-letsaigc-schemas-ui.py.txt",
+      "sha256": "B3C728F4C8CA1A7E8914E0A86BBD12F8D01B0533CCB37D6A71BBCAE0CE1B036B"
+    },
+    {
+      "source": "src\\letsaigc\\ui_analysis\\__init__.py",
+      "archive": "specs/013-game-ui-analysis/archive/worktree-prototype/src-letsaigc-ui_analysis-__init__.py.txt",
+      "sha256": "1FE8DE9CBB034EA67FB903FDF51683B1F2C805EC72B3352830B2E07F25A88448"
+    },
+    {
+      "source": "src\\letsaigc\\ui_analysis\\coordinates.py",
+      "archive": "specs/013-game-ui-analysis/archive/worktree-prototype/src-letsaigc-ui_analysis-coordinates.py.txt",
+      "sha256": "4B1C0491DA6F6BB62D29B6531708CC061E2DE14F43428CAE1456E8867A90FD6B"
+    },
+    {
+      "source": "src\\letsaigc\\ui_analysis\\crops.py",
+      "archive": "specs/013-game-ui-analysis/archive/worktree-prototype/src-letsaigc-ui_analysis-crops.py.txt",
+      "sha256": "4BF3967BD73FE9DA88087BEB01C3B91145A46C1D23539C7FBE068624D05DE50B"
+    },
+    {
+      "source": "src\\letsaigc\\ui_analysis\\inpaint.py",
+      "archive": "specs/013-game-ui-analysis/archive/worktree-prototype/src-letsaigc-ui_analysis-inpaint.py.txt",
+      "sha256": "C11945CC8AD76ED849BD7136502B7057A4334D3523488E1CB4FF4668C7DF991A"
+    },
+    {
+      "source": "src\\letsaigc\\ui_analysis\\layout.py",
+      "archive": "specs/013-game-ui-analysis/archive/worktree-prototype/src-letsaigc-ui_analysis-layout.py.txt",
+      "sha256": "9A513E68B103430443C5C45B361845EA5E014D0B3D9A66B577C15919CFE644CE"
+    },
+    {
+      "source": "src\\letsaigc\\ui_analysis\\normalize.py",
+      "archive": "specs/013-game-ui-analysis/archive/worktree-prototype/src-letsaigc-ui_analysis-normalize.py.txt",
+      "sha256": "32FBF3000E8036EB100684047CECBB7034083BC40F54CC83655A1A3D03F2D4CA"
+    },
+    {
+      "source": "src\\letsaigc\\ui_analysis\\quality.py",
+      "archive": "specs/013-game-ui-analysis/archive/worktree-prototype/src-letsaigc-ui_analysis-quality.py.txt",
+      "sha256": "C7FCBE0C601FE0E9C05B04672A051F09C08DFD0CAAE30FCC71F1504F1E362C57"
+    },
+    {
+      "source": "src\\letsaigc\\ui_analysis\\revision.py",
+      "archive": "specs/013-game-ui-analysis/archive/worktree-prototype/src-letsaigc-ui_analysis-revision.py.txt",
+      "sha256": "3495502679E1FEA6D5019A9ACBD54A8A4BFD359E2AF716EA18B16ACEAAB1DEEF"
+    },
+    {
+      "source": "src\\letsaigc\\ui_analysis\\text_assets.py",
+      "archive": "specs/013-game-ui-analysis/archive/worktree-prototype/src-letsaigc-ui_analysis-text_assets.py.txt",
+      "sha256": "D6B18442F3BA613B9595BD47C42BAEB87E3E1E6B7EEDE445870A3049E4E3B42B"
+    }
+  ]
+}

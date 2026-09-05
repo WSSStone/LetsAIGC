@@ -1,0 +1,189 @@
+"""UI domain records. Large/untrusted observations live in artifacts, not workflow history."""
+
+from __future__ import annotations
+
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .agent import TaskBudget
+from .pipeline import ArtifactRef, Identifier
+
+Point = tuple[float, float]
+Box = tuple[float, float, float, float]
+Score = Annotated[float, Field(ge=0, le=1)]
+
+
+class UIModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+
+class UILimits(UIModel):
+    queries: int = Field(default=3, ge=1, le=3)
+    candidates_per_query: int = Field(default=20, ge=1, le=20)
+    downloads_per_query: int = Field(default=5, ge=1, le=5)
+    selected_images: int = Field(default=1, ge=1, le=10)
+    batch_images: int = Field(default=10, ge=1, le=10)
+    vlm_calls: int = Field(default=4, ge=1, le=4)
+    ocr_rereads: int = Field(default=2, ge=0, le=2)
+    inpaint_revisions: int = Field(default=2, ge=0, le=2)
+    max_pixels: int = Field(default=24_000_000, gt=0, le=64_000_000)
+    max_views: int = Field(default=32, ge=1, le=64)
+
+
+class InpaintSpec(UIModel):
+    target: Literal["scene_background", "map_surface"]
+    region: Box
+    remove_ids: list[Identifier] = Field(default_factory=list, max_length=128)
+    preserve_ids: list[Identifier] = Field(default_factory=list, max_length=128)
+    prompt: str = Field(min_length=1, max_length=2000)
+    seed: int = Field(default=20260903, ge=0, le=2**63 - 1)
+    steps: int = Field(default=20, ge=1, le=30)
+    dilation: int = Field(default=4, ge=0, le=32)
+    feather: int = Field(default=2, ge=0, le=16)
+
+    @model_validator(mode="after")
+    def valid_target(self):
+        if self.region[2] <= self.region[0] or self.region[3] <= self.region[1]:
+            raise ValueError("Editing target must have positive area")
+        if set(self.remove_ids) & set(self.preserve_ids):
+            raise ValueError("An element cannot be both removed and preserved")
+        return self
+
+
+class UIAnalysisRequest(UIModel):
+    schema_version: Literal[1] = 1
+    mode: Literal["analyze", "decompose", "reconstruct"] = "analyze"
+    query: str | None = Field(default=None, min_length=1, max_length=400)
+    languages: list[Literal["zh", "en"]] = Field(default_factory=lambda: ["zh", "en"], min_length=1)
+    limits: UILimits = Field(default_factory=UILimits)
+    budget: TaskBudget
+    inpaint: InpaintSpec | None = None
+    text_assets: bool = False
+    remove_text: bool = False
+    vlm_model: str = "gpt-5.6-luna"
+    ocr_model: str = "PP-OCRv5_mobile"
+    segmentation_model: str = "sam2.1_hiera_tiny"
+
+    @model_validator(mode="after")
+    def mode_matches_request(self):
+        if (self.mode == "reconstruct") != (self.inpaint is not None):
+            raise ValueError("Reconstruction requires an explicit scene/map editing target")
+        if self.remove_text and self.mode != "reconstruct":
+            raise ValueError("Removing text requires reconstruction authorization")
+        if self.text_assets and self.mode == "analyze":
+            raise ValueError("Glyph assets require decompose or reconstruct mode")
+        if self.limits.selected_images > self.limits.batch_images:
+            raise ValueError("Selected image count exceeds batch limit")
+        return self
+
+
+class ImageView(UIModel):
+    id: Identifier
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    offset: Point = (0, 0)
+    scale: Point = (1, 1)
+    artifact: ArtifactRef | None = None
+
+    @model_validator(mode="after")
+    def positive_scale(self):
+        if min(self.scale) <= 0:
+            raise ValueError("View scale must be positive")
+        return self
+
+
+class TextRegion(UIModel):
+    id: Identifier
+    raw_text: str = Field(max_length=4096)
+    confidence: Score
+    polygon: list[Point] = Field(min_length=3, max_length=64)
+    view_id: Identifier
+    model: str
+    suggested_text: str | None = None
+    correction_basis: str | None = None
+    status: Literal["recognized", "uncertain"] = "recognized"
+
+
+class UIElement(UIModel):
+    id: Identifier
+    parent_id: Identifier | None = None
+    kind: Literal["panel", "button", "icon", "text", "minimap", "bar", "counter", "crosshair", "unknown"]
+    bbox: Box
+    polygon: list[Point] | None = Field(default=None, min_length=3, max_length=128)
+    text_ids: list[Identifier] = Field(default_factory=list)
+    occludes: list[Identifier] = Field(default_factory=list)
+    semantic_status: Literal["observed", "inferred", "unknown"] = "observed"
+    crop: ArtifactRef | None = None
+    mask: ArtifactRef | None = None
+    estimated_alpha: ArtifactRef | None = None
+
+
+class SceneObservation(UIModel):
+    description: str = Field(max_length=2000)
+    evidence_ids: list[Identifier] = Field(min_length=1, max_length=128)
+
+
+class SceneHypothesis(SceneObservation):
+    uncertainty: str = Field(min_length=1, max_length=2000)
+
+
+class UILayout(UIModel):
+    schema_version: Literal[1] = 1
+    image: ArtifactRef
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    coordinate_space: Literal["canonical_px_xyxy_exclusive_max"] = "canonical_px_xyxy_exclusive_max"
+    elements: list[UIElement] = Field(default_factory=list, max_length=256)
+    texts: list[TextRegion] = Field(default_factory=list, max_length=1024)
+    observations: list[SceneObservation] = Field(default_factory=list, max_length=32)
+    hypotheses: list[SceneHypothesis] = Field(default_factory=list, max_length=32)
+    id_mapping: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class ProposedElement(UIModel):
+    """VLM geometry only: no filesystem paths or artifact-writing capabilities."""
+
+    id: Identifier
+    parent_id: Identifier | None
+    kind: Literal["panel", "button", "icon", "text", "minimap", "bar", "counter", "crosshair", "unknown"]
+    bbox: list[float] = Field(min_length=4, max_length=4)
+    polygon: list[Annotated[list[float], Field(min_length=2, max_length=2)]] | None = Field(
+        min_length=3, max_length=128
+    )
+    text_ids: list[Identifier] = Field(max_length=128)
+    occludes: list[Identifier] = Field(max_length=128)
+    semantic_status: Literal["observed", "inferred", "unknown"]
+
+
+class TextCorrection(UIModel):
+    text_id: Identifier
+    suggested_text: str = Field(max_length=4096)
+    correction_basis: str = Field(min_length=1, max_length=2000)
+
+
+class UIAnalysisProposal(UIModel):
+    elements: list[ProposedElement] = Field(max_length=256)
+    observations: list[SceneObservation] = Field(max_length=32)
+    hypotheses: list[SceneHypothesis] = Field(max_length=32)
+    corrections: list[TextCorrection] = Field(max_length=128)
+
+
+class RevisionAction(UIModel):
+    kind: Literal["reread_text", "refine_segment", "reanalyze_region", "regenerate"]
+    target_id: Identifier
+    region: Box | None = None
+    points: list[Point] = Field(default_factory=list, max_length=16)
+    prompt: str | None = Field(default=None, max_length=2000)
+    seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
+
+
+class QualityReport(UIModel):
+    checks: dict[str, bool]
+    issues: list[str] = Field(default_factory=list)
+    semantic_review: str | None = None
+    origin: Literal["observed", "estimated", "generated"] = "observed"
+
+    @property
+    def passed(self) -> bool:
+        return bool(self.checks) and all(self.checks.values())

@@ -1,0 +1,27 @@
+"""Estimated glyph separation, with uncertainty explicitly retained."""
+
+import numpy as np
+from PIL import Image, ImageDraw, ImageFilter
+
+from ..schemas.ui import TextRegion
+
+
+def glyph_mask(image: Image.Image, text: TextRegion) -> tuple[Image.Image, dict]:
+    gray = image.convert("L")
+    smooth = gray.filter(ImageFilter.GaussianBlur(3))
+    contrast = np.abs(np.array(gray, dtype=float) - np.array(smooth, dtype=float))
+    region = Image.new("L", image.size)
+    ImageDraw.Draw(region).polygon(text.polygon, fill=255)
+    inside = np.array(region) > 0
+    values = contrast[inside]
+    if not len(values):
+        raise ValueError("Empty text region")
+    threshold = max(10.0, float(np.percentile(values, 60)))
+    mask = Image.fromarray(((contrast >= threshold) & inside).astype("uint8") * 255)
+    mask = mask.filter(ImageFilter.MaxFilter(3))
+    return mask, {
+        "origin": "estimated",
+        "method": "local-contrast-with-outline",
+        "uncertainty": "May include background edges or miss faint outlines and shadows",
+        "ocr_id": text.id,
+    }

@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+from ..schemas.pipeline import digest
+from ..schemas.ui import UIAnalysisProposal, UIElement, UILayout
+from .coordinates import checked_box, checked_polygon, iou
+
+
+def validate_layout(layout: UILayout) -> UILayout:
+    elements = {e.id: e for e in layout.elements}
+    texts = {t.id: t for t in layout.texts}
+    if len(elements) != len(layout.elements) or len(texts) != len(layout.texts) or elements.keys() & texts.keys():
+        raise ValueError("Layout IDs are not unique")
+    for element in elements.values():
+        checked_box(element.bbox, layout.width, layout.height)
+        if element.polygon:
+            checked_polygon(element.polygon, layout.width, layout.height)
+        if not set(element.text_ids) <= texts.keys() or not set(element.occludes) <= elements.keys():
+            raise ValueError("Dangling layout relationship")
+        if element.id in element.occludes:
+            raise ValueError("An element cannot occlude itself")
+        visited = {element.id}
+        parent = element.parent_id
+        while parent:
+            if parent in visited or parent not in elements:
+                raise ValueError("Invalid parent relationship or cycle")
+            visited.add(parent)
+            parent = elements[parent].parent_id
+    for text in texts.values():
+        checked_polygon(text.polygon, layout.width, layout.height)
+        if (text.suggested_text is None) != (text.correction_basis is None):
+            raise ValueError("OCR corrections require evidence")
+    known = elements.keys() | texts.keys()
+    for evidence in [*layout.observations, *layout.hypotheses]:
+        if not set(evidence.evidence_ids) <= known:
+            raise ValueError("Semantic claim references unknown evidence")
+    return layout
+
+
+def fuse(base: UILayout, proposal: UIAnalysisProposal, previous: UILayout | None = None) -> UILayout:
+    validate_layout(base)
+    if previous and (previous.image.sha256, previous.width, previous.height) != (
+        base.image.sha256,
+        base.width,
+        base.height,
+    ):
+        raise ValueError("A layout revision must refer to the same canonical image")
+    proposal_ids = [e.id for e in proposal.elements]
+    if len(set(proposal_ids)) != len(proposal_ids) or set(proposal_ids) & {t.id for t in base.texts}:
+        raise ValueError("Duplicate model element ID")
+    result = base.model_copy(deep=True)
+    accepted = []
+    identities = {}
+    used = set()
+    old = previous.elements if previous else []
+    for proposed in proposal.elements:
+        element = UIElement.model_validate(proposed.model_dump())
+        checked_box(element.bbox, base.width, base.height)
+        duplicate = next((e for e in accepted if e.kind == element.kind and iou(e.bbox, element.bbox) > 0.95), None)
+        if duplicate:
+            identities[element.id] = duplicate.id
+            duplicate.text_ids = sorted(set(duplicate.text_ids + element.text_ids))
+            duplicate.occludes = sorted(set(duplicate.occludes + element.occludes))
+            continue
+        candidates = sorted(
+            (e for e in old if e.kind == element.kind and e.id not in used),
+            key=lambda e: (-iou(e.bbox, element.bbox), e.id),
+        )
+        identity = (
+            candidates[0].id
+            if candidates and iou(candidates[0].bbox, element.bbox) >= 0.75
+            else ("element-" + digest([base.image.sha256, element.kind, element.bbox])[:24])
+        )
+        identities[element.id] = identity
+        used.add(identity)
+        accepted.append(element.model_copy(update={"id": identity}))
+    for element in accepted:
+        element.parent_id = identities.get(element.parent_id, element.parent_id)
+        element.occludes = [identities.get(x, x) for x in element.occludes]
+        # OCR links use original OCR IDs. No mutation of the recognized text.
+        if not element.text_ids:
+            for text in result.texts:
+                xs, ys = zip(*text.polygon, strict=True)
+                center = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
+                if element.bbox[0] <= center[0] < element.bbox[2] and element.bbox[1] <= center[1] < element.bbox[3]:
+                    element.text_ids.append(text.id)
+    result.elements = accepted
+    for collection in ("observations", "hypotheses"):
+        setattr(
+            result,
+            collection,
+            [
+                item.model_copy(update={"evidence_ids": [identities.get(x, x) for x in item.evidence_ids]})
+                for item in getattr(proposal, collection)
+            ],
+        )
+    text_by_id = {t.id: t for t in result.texts}
+    corrected = set()
+    for correction in proposal.corrections:
+        if correction.text_id not in text_by_id or correction.text_id in corrected:
+            raise ValueError("Correction references unknown or repeated OCR text")
+        corrected.add(correction.text_id)
+        text = text_by_id[correction.text_id]
+        text.suggested_text, text.correction_basis = correction.suggested_text, correction.correction_basis
+    # One-to-many and many-to-one overlap links preserve the history of splits/merges.
+    result.id_mapping = {
+        e.id: sorted(n.id for n in accepted if n.kind == e.kind and (n.id == e.id or iou(e.bbox, n.bbox) >= 0.25))
+        for e in old
+    }
+    return validate_layout(result)
