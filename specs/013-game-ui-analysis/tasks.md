@@ -2,7 +2,7 @@
 
 **Feature**: 013-game-ui-analysis | **Date**: 2026-09-04 | **Branch**: dev-game-ui  
 **Baseline**: `7b91c34deb23064aaa6b492ce105956a59b47b71`  
-**状态**：50项中T001—T023、T025—T026与T043—T050共33项已完成；其余17项仍待实施。11项[LIVE]中T010、T017、T018、T049已验收，其余7项未验收。所有环境命令继续使用conda run；历史mamba阻断、旧失败与unknown证据保留。
+**状态**：50项中T001—T023、T025—T027与T043—T050共34项已完成；其余16项仍待实施。11项[LIVE]中T010、T017、T018、T027、T049已验收，其余6项未验收。所有环境命令继续使用conda run；历史mamba阻断、旧失败与unknown证据保留。
 
 ## 执行约定
 
@@ -74,7 +74,7 @@
 - [ ] T024 [US2] [LIVE] 用固定样本和具体批准验证真实SAM加载、mask/alpha/glyph角色、canonical映射、GPU释放及实际用量；记录分割开发测量。缺能力保持未验收，正式阈值在最终开发集阶段冻结，不阻塞后续编辑接线。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_segmentation_runtime.py`、`C:/Programs/LetsAIGC/.local/validation/ui-analysis/segmentation-runtime.json`。（依赖：T023）
 - [X] T025 [US3] 先写原生mask编译/四工件、旧T2I/I2I金样和合成像素合同：配对输入、极性/通道/变换、扩张羽化裁到ROI并避开keep、空mask零生成、尺寸错误拒绝和区外逐像素相同。 文件：`C:/Programs/LetsAIGC/tests/contract/test_ui_inpaint_compile.py`、`C:/Programs/LetsAIGC/tests/unit/test_ui_inpaint_pixels.py`。（依赖：T020）
 - [X] T026 [US3] 实现MaskedGenerationPlan v2的编译分派及原生sdxl-inpaint UI/API图、工作流合同和recipe；旧v1字节/编译语义不变。实现冻结最终mask、回映及CPU精确合成，失败候选及模型/recipe/编译hash均入证据。 文件：`C:/Programs/LetsAIGC/src/letsaigc/workflows/compiler.py`、`C:/Programs/LetsAIGC/src/letsaigc/backends/comfy.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/inpaint.py`、`C:/Programs/LetsAIGC/configs/workflows/recipes/sdxl-inpaint.yaml`、`C:/Programs/LetsAIGC/workflows/ui/sdxl-inpaint.json`、`C:/Programs/LetsAIGC/workflows/api/sdxl-inpaint.json`、`C:/Programs/LetsAIGC/workflows/contracts/sdxl-inpaint.yaml`。（依赖：T025）
-- [ ] T027 [US3] [LIVE] 只读核验锁定ComfyUI的object_info与原生节点/四工件，运行旧编译金样和本地像素合同；不提交生成。缺已部署服务保留未完成，作为真实补图前能力门槛。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_inpaint_object_info.py`、`C:/Programs/LetsAIGC/.local/validation/ui-analysis/inpaint-object-info.json`。（依赖：T026）
+- [X] T027 [US3] [LIVE] 只读核验锁定ComfyUI的object_info与原生节点/四工件，运行旧编译金样和本地像素合同；不提交生成。缺已部署服务保留未完成，作为真实补图前能力门槛。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_inpaint_object_info.py`、`C:/Programs/LetsAIGC/.local/validation/ui-analysis/inpaint-object-info.json`。（依赖：T026）
 - [ ] T028 [US3] 运行T019选择/子批准合同及review版本变更/旧child失效测试并接线decompose/reconstruct：推荐选择冻结后直接展示具体分割计划，批准同时确认范围；分割后最终image/mask再形成补图批准。SAM/Comfy顺序交接并确认释放，选择候选替换使旧待执行批准失效；parse仍可独立完成。 文件：`C:/Programs/LetsAIGC/src/letsaigc/execution/temporal/ui_workflow.py`、`C:/Programs/LetsAIGC/src/letsaigc/execution/temporal/ui_activities.py`、`C:/Programs/LetsAIGC/src/letsaigc/execution/temporal/worker.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/cli.py`、`C:/Programs/LetsAIGC/tests/integration/test_ui_reconstruction.py`。（依赖：T021、T024、T027）
 - [ ] T029 [US3] 接入人工review的显式局部重读/复核，结果只作建议、采纳才改版本，锁定字段不被覆盖；先写四种枚举局部修订与依赖闭包测试，再实现reread_text/adjust_segmentation/review_region/regenerate。未变ID/产物复用，自动可调仅prompt/negative_prompt/seed；新mask/model/recipe须新批准，沿同一编辑链/根组计数，不重置预算，失败版本保留。 文件：`C:/Programs/LetsAIGC/tests/unit/test_ui_revision.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/revision.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/cli.py`。（依赖：T028）
 - [ ] T030 [US3] [LIVE] 补验SC-017真实局部复核不覆盖锁定字段及review版本绑定，验证真实decompose和scene_background/map_surface补图，覆盖默认提案直接批准、候选/高级覆盖、最终mask批准、区外像素一致、有限修订及GPU受理后一次恢复观察。保存实际质量值和谱系，复用公共故障证据；同步编辑操作指南，缺真值不报背景恢复准确率。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_reconstruction_runtime.py`、`C:/Programs/LetsAIGC/docs/game-ui-analysis.md`、`C:/Programs/LetsAIGC/.local/validation/ui-analysis/editing-runtime.json`。（依赖：T029）
@@ -712,3 +712,14 @@ T035 仅交付来源分离清单和只读准备审计：6 例现有素材、缺1
 T024只读准备检查显示本机Darwin arm64缺SAM模型目录，锁定CUDA环境与伴随文件哈希尚未验证；记录 `t024-readiness.json`。T027专用探测因缺 `.local/runtime/ComfyUI` 锁定运行目录，在发送GET前退出，证据 `.local/validation/ui-analysis/inpaint-object-info.json`；不得据此断言已有其他服务端口不可用。真实SAM需完整锁定资源及新计划指纹/预算批准；ComfyUI须先有匹配锁的本地部署，再只读核验object_info，不提交生成。T028尚未接线；T024明确允许缺能力时保留LIVE未验收并继续后续接线，T027仍是实际补图能力门槛，不能用本轮离线通过替代它们。
 
 账本审计：早期旧CLI测试未隔离本地存储，留下4个未批准、未执行的测试计划（tasks 12→16）。已修复为临时账本测试，保留这些记录及旧失败日志；其余所有表的行数与SHA均与本轮前一致。最终完整回归前后所有表SHA一致。真实账本仍v4，approvals 9、operations 63、ui_step_bindings 63，历史unknown 0.25USD保留。本轮没有迁移、模型下载或Git提交，也未打开新的内置浏览器。
+
+
+### T027 macOS 只读现场验收（2026-09-06）
+
+用户明确指定Luna xhigh子代理部署、主代理验收。锁定ComfyUI v0.34.2 / 169fcf35a2fc163fec31338b816503ddac0d3fcf，干净源码checkout位于.local/runtime/ComfyUI，独立letsaigc-comfy环境Python3.12.14、torch2.9.1、torchvision0.24.1、torchaudio2.9.1。Darwin-arm64使用新增平台锁，CPU启动并禁用第三方/API节点；原平台CUDA锁保留。没有模型下载或生成请求。
+
+真实GET /object_info返回639个节点，8种所需节点均为官方内置；ImageToMask位于comfy_extras.nodes_mask，红通道单选及grow_mask_by显式0受支持。验收核对实际源码提交/干净状态、监听PID与同一进程的环境和启动参数；主代理独立核验10节点13连接、旧编译金样和像素保护合同。修复旧探测的模块误判、COMBO格式假设与跨PID拼接证明风险。
+
+主代理完整回归：**574 passed、3 skipped、2 warnings，68.62秒**，含真实T027只读探测；ruff/diff通过。跳过仅既有真实GPU1项、Windows共享冲突2项。现场证据inpaint-object-info-2.json及后续编号保留在.local/validation/ui-analysis/；详细日志、主代理独立检查和账本对比在t027-macos-2026-09-06/。包版本清单SHA不等于全体wheel逐一验证；本轮结论仅为固定运行实例的节点能力，不是MPS/CUDA生成、SDXL模型或最终图像质量通过。
+
+T027已勾选，累计34/50。T024交Windows Sol xhigh执行，提示词见docs/windows-t024-agent-prompt-2026-09-06.md；T028及其余未完成LIVE不变。真实账本保持v4且本轮前后所有表SHA一致，历史unknown0.25USD和4个旧未执行测试计划保留。验收临时CPU服务收尾停止，环境与源码保留，可按docs/game-ui-analysis.md重新启动；本轮没有打开内置浏览器。

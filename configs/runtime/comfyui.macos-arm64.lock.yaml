@@ -1,0 +1,40 @@
+schema_version: 1
+platform: Darwin-arm64
+repository: https://github.com/Comfy-Org/ComfyUI.git
+tag: v0.34.2
+commit: 169fcf35a2fc163fec31338b816503ddac0d3fcf
+path: .local/runtime/ComfyUI
+environment: letsaigc-comfy
+python: "3.12"
+device: cpu
+pytorch:
+  index_url: https://pypi.org/simple
+  packages:
+    - torch==2.9.1
+    - torchvision==0.24.1
+    - torchaudio==2.9.1
+  wheels:
+    torch:
+      filename: torch-2.9.1-cp312-none-macosx_11_0_arm64.whl
+      sha256: c0d25d1d8e531b8343bea0ed811d5d528958f1dcbd37e7245bc686273177ad7e
+      source: https://pypi.org/project/torch/2.9.1/
+    torchvision:
+      filename: torchvision-0.24.1-cp312-cp312-macosx_11_0_arm64.whl
+      sha256: e48bf6a8ec95872eb45763f06499f87bd2fb246b9b96cb00aae260fda2f96193
+      source: https://pypi.org/project/torchvision/0.24.1/
+    torchaudio:
+      filename: torchaudio-2.9.1-cp312-cp312-macosx_11_0_arm64.whl
+      sha256: 7581ef170794c599aed55918e00d0acd9e5c9a0f19400c9a9a840955180365c5
+      source: https://pypi.org/project/torchaudio/2.9.1/
+  requirements_sha256: df8477a93b8f7e7228738ce0c1ddf8cc55b18d8cf7865fe137cc49c92b7c2d1f
+  inventory:
+    path: .local/locks/letsaigc-comfy-macos-arm64.txt
+    sha256: 71cdde79139d944440318b21686f48456f7a6c6c0acbaea0c2c174f416a32c65
+startup:
+  args:
+    - --cpu
+    - --disable-all-custom-nodes
+    - --disable-api-nodes
+listen: 127.0.0.1
+port: 8188
+custom_nodes: []

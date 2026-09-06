@@ -218,3 +218,6 @@ conda run --no-capture-output -n letsaigc-core ruff check .
 ## 2026-09-06 编辑准备实施状态
 
 T021—T023、T025—T026已完成，入口命令和候选选择见[编辑区域准备](../../docs/game-ui-analysis.md#编辑区域准备)。reviewed-task冻结确认版本，automatic-task显式沿用原自动布局，均不重跑OCR/VLM；核心环境无需Torch。当前编辑execute仍等待T028工作流接线，勿消费旧批准尝试执行。真实SAM/CUDA及锁定ComfyUI本机资源尚未就绪，T024/T027保持LIVE未验收。完整回归565 passed、4 skipped，不能替代真实GPU或最终质量验收。
+
+
+2026-09-06后续更新：T027已在macOS完成固定ComfyUI CPU服务的只读节点验收，累计34/50；完整回归574 passed、3 skipped。T024仍交Windows Sol xhigh验收，T028未接线。上文“本机ComfyUI未就绪”保留为历史记录，启动与复核见[macOS节点验收环境](../../docs/game-ui-analysis.md#macos-comfyui-节点验收环境)。

@@ -5,7 +5,7 @@
 ```text
 接手 LetsAIGC 013-game-ui-analysis 的 T024 真实 SAM 验收。使用当前选择的 gpt-5.6-sol / xhigh 主代理；本次无需额外子代理。
 
-仓库通常位于 C:\Programs\LetsAIGC。先检查 git status，保留本机未提交改动；fetch origin，确认 origin/dev-game-ui 包含基线提交 6186fe04327918163f6a294b633a3abadeb2445f（feat(ui): add human review and guarded editing foundations）。工作树干净时在 dev-game-ui 上使用 git pull --ff-only；如本机存在分歧，不 reset、不覆盖，先分析。可从已同步基线建立 codex/t024-windows 分支开展独立工作。Mac Agent 正在独立实施 T027，不要同时修改或部署 T027，也不要覆盖后续 Mac 提交。
+仓库通常位于 C:\Programs\LetsAIGC。先检查 git status，保留本机未提交改动；fetch origin，确认 origin/dev-game-ui 包含基线提交 6186fe04327918163f6a294b633a3abadeb2445f（feat(ui): add human review and guarded editing foundations）。工作树干净时在 dev-game-ui 上使用 git pull --ff-only；如本机存在分歧，不 reset、不覆盖，先分析。可从已同步基线建立 codex/t024-windows 分支开展独立工作。T027 已由 Mac Agent 独立完成本机 CPU 节点验收，最新任务状态为34/50；不要同时修改或部署 T027，也不要覆盖后续 Mac 提交。
 
 阅读 AGENTS.md、docs/development-handoff-2026-09-05.md、specs/013-game-ui-analysis/{spec,plan,tasks,quickstart}.md、contracts/editing.md、configs/runtime/vision{,.lock}.yaml、vision-sam2-source-evidence.yaml 和 environment/vision-segmentation.yml，遵循仓库 speckit-implement 流程，不重建已经完成的规格。
 

@@ -154,3 +154,26 @@ conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui insp
 背景准备使用 `--mode reconstruct --target scene_background` 或 `map_surface`。没有明确目标时保留 `awaiting_selection`，不猜测整图背景。默认推荐保留文字；`--remove-text` 才把文字纳入移除提案。选择与预览均不是 GPU 批准。
 
 当前编辑 `execute` 返回 `capability_not_ready`，不会消耗解析批准或运行模型。具体分割、补图子计划与批准将在执行接线阶段提供，不能使用此处的根计划指纹直接生成。核心环境无需新增 Torch；SAM 的独立 CUDA 环境、完整本地模型锁与真实验收另有门槛，不能用本机 MPS 环境冒充已验证 CUDA 运行时。
+
+## macOS ComfyUI 节点验收环境
+
+本机为 T027 单独部署了 `letsaigc-comfy`，Python 3.12、PyTorch 2.9.1、torchvision 0.24.1、torchaudio 2.9.1。源码位于 `.local/runtime/ComfyUI`，固定 ComfyUI v0.34.2 / `169fcf35a2fc163fec31338b816503ddac0d3fcf`。Apple Silicon 选择 `configs/runtime/comfyui.macos-arm64.lock.yaml`；其他平台继续使用原锁，缺少 Mac 锁时不回退到 CUDA 包配置。
+
+该 Mac 配置使用 CPU，并禁用第三方 custom nodes 和远端 API nodes，用于只读 `/object_info` 检查。核心环境没有新增 Torch；未下载 SDXL 权重，未提交生成。它不表示 MPS 推理、模型效果或 GPU 资源交接已经验收，也不能替代 Windows T024。
+
+安装资源保留在本机，需要使用时在仓库根目录启动：
+
+```sh
+conda run --no-capture-output -n letsaigc-core python -m letsaigc comfy serve
+```
+
+只监听 `127.0.0.1:8188`，终端 Ctrl+C 停止。启动前检查端口，保留用户已有服务。另开终端做专用只读验收：
+
+```sh
+LETSAIGC_UI_INPAINT_OBJECT_INFO_LIVE=1 \
+conda run --no-capture-output -n letsaigc-core pytest --ui-live tests/integration/test_ui_inpaint_object_info.py -q
+```
+
+验收同时核对源码提交、干净 checkout、监听进程及其实际环境、节点模块/端口和 mask 参数。macOS 上进程检查需相应系统权限；无法核实时明确跳过，不冒充通过。官方 `ImageToMask` 来自 `comfy_extras.nodes_mask`，属于内置节点；`grow_mask_by` 默认6，但工作流显式指定0，验收检查接口是否允许0。
+
+环境版本清单位于 `.local/locks/letsaigc-comfy-macos-arm64.txt`，其 SHA 只证明清单内容，不代表全部 wheel 字节已逐一校验。运行证据与日志位于 `.local/validation/ui-analysis/t027-macos-2026-09-06/`，早期未就绪记录保留。换机须重建环境与本地模型路径配置，不能把 Git 中的验收状态当作新机已经部署。

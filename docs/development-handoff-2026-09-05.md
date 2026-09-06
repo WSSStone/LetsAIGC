@@ -132,3 +132,14 @@ T024只读准备检查显示本机Darwin arm64缺SAM模型目录，锁定CUDA环
 账本审计：早期旧CLI测试未隔离本地存储，留下4个未批准、未执行的测试计划（tasks 12→16）。已修复为临时账本测试，保留这些记录及旧失败日志；其余所有表的行数与SHA均与本轮前一致。最终完整回归前后所有表SHA一致。真实账本仍v4，approvals 9、operations 63、ui_step_bindings 63，历史unknown 0.25USD保留。本轮没有迁移、模型下载或Git提交，也未打开新的内置浏览器。
 
 继续时以当前 tasks.md 为准，不重复上文已完成阶段；先处理真实运行资源准备与T028接线的依赖，再推进剩余任务。核心选择/人工校正不需要Torch；SAM仍是独立环境，不能把现有Mac环境复制后直接视为CUDA验收通过。
+
+
+## T027 macOS 只读现场验收（2026-09-06）
+
+用户明确指定Luna xhigh子代理部署、主代理验收。锁定ComfyUI v0.34.2 / 169fcf35a2fc163fec31338b816503ddac0d3fcf，干净源码checkout位于.local/runtime/ComfyUI，独立letsaigc-comfy环境Python3.12.14、torch2.9.1、torchvision0.24.1、torchaudio2.9.1。Darwin-arm64使用新增平台锁，CPU启动并禁用第三方/API节点；原平台CUDA锁保留。没有模型下载或生成请求。
+
+真实GET /object_info返回639个节点，8种所需节点均为官方内置；ImageToMask位于comfy_extras.nodes_mask，红通道单选及grow_mask_by显式0受支持。验收核对实际源码提交/干净状态、监听PID与同一进程的环境和启动参数；主代理独立核验10节点13连接、旧编译金样和像素保护合同。修复旧探测的模块误判、COMBO格式假设与跨PID拼接证明风险。
+
+主代理完整回归：**574 passed、3 skipped、2 warnings，68.62秒**，含真实T027只读探测；ruff/diff通过。跳过仅既有真实GPU1项、Windows共享冲突2项。现场证据inpaint-object-info-2.json及后续编号保留在.local/validation/ui-analysis/；详细日志、主代理独立检查和账本对比在t027-macos-2026-09-06/。包版本清单SHA不等于全体wheel逐一验证；本轮结论仅为固定运行实例的节点能力，不是MPS/CUDA生成、SDXL模型或最终图像质量通过。
+
+T027已勾选，累计34/50。T024交Windows Sol xhigh执行，提示词见docs/windows-t024-agent-prompt-2026-09-06.md；T028及其余未完成LIVE不变。真实账本保持v4且本轮前后所有表SHA一致，历史unknown0.25USD和4个旧未执行测试计划保留。验收临时CPU服务收尾停止，环境与源码保留，可按docs/game-ui-analysis.md重新启动；本轮没有打开内置浏览器。
