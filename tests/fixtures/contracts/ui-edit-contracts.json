@@ -1,0 +1,238 @@
+{
+  "selection": {
+    "schema_version": 1,
+    "sources": [
+      {
+        "source_id": "source-1",
+        "original_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_regions": [
+          {
+            "kind": "bbox",
+            "xyxy": [
+              0,
+              0,
+              64,
+              48
+            ]
+          }
+        ],
+        "keep_elements": [],
+        "remove_elements": []
+      }
+    ]
+  },
+  "masked_plan": {
+    "schema_version": 2,
+    "task_id": "edit-child",
+    "session_id": "session-fixture",
+    "intent": "image_to_image",
+    "user_intent": "Restore selected background",
+    "backend": "comfy",
+    "model": "sdxl-base-1.0",
+    "recipe": "sdxl-inpaint",
+    "agent_model": "gpt-5.6-luna",
+    "agent_vlm_model": "gpt-5.6-luna",
+    "agent_endpoint_fingerprint": null,
+    "dependency_hashes": {},
+    "parameters": {
+      "seed": 7,
+      "steps": 20
+    },
+    "input_assets": [],
+    "acceptance_criteria": [
+      "Keep pixels outside the approved mask unchanged"
+    ],
+    "estimated_iteration_cost_usd": 0.0,
+    "estimated_iteration_gpu_minutes": 0.0,
+    "envelope": {
+      "backend": "comfy",
+      "model": "sdxl-base-1.0",
+      "recipe": "sdxl-inpaint",
+      "output_count": 1,
+      "max_width": 64,
+      "max_height": 48,
+      "quality": null,
+      "background": null,
+      "max_steps": null,
+      "allowed_tools": [
+        "generate"
+      ],
+      "mutable_parameters": [
+        "negative_prompt",
+        "prompt",
+        "seed"
+      ],
+      "budget": {
+        "max_total_cost_usd": 1.0,
+        "max_iteration_cost_usd": 0.5,
+        "max_total_gpu_minutes": 10.0,
+        "max_iteration_gpu_minutes": 5.0,
+        "max_revisions": 2
+      }
+    },
+    "image_mask": {
+      "image_ref": {
+        "schema_version": 1,
+        "task_id": "edit-child",
+        "artifact_id": "image",
+        "key": "edit-child/fixture/image.json",
+        "sha256": "affa657b3c3e9337bdf3c879c0561b74d54a9197fdc6acd834dcdc02837454fc",
+        "size_bytes": 10,
+        "media_type": "image/png",
+        "role": "image",
+        "operation_id": "fixture",
+        "source_ids": [
+          "source-1"
+        ]
+      },
+      "mask_ref": {
+        "schema_version": 1,
+        "task_id": "edit-child",
+        "artifact_id": "edit-mask",
+        "key": "edit-child/fixture/edit_mask.json",
+        "sha256": "470ad4e42d16954c43d8cde39b9390341f81a14c073795a8b26d2420c8373ccc",
+        "size_bytes": 10,
+        "media_type": "image/png",
+        "role": "edit_mask",
+        "operation_id": "fixture",
+        "source_ids": [
+          "source-1"
+        ]
+      },
+      "canonical_ref": {
+        "schema_version": 1,
+        "task_id": "edit-child",
+        "artifact_id": "canonical",
+        "key": "edit-child/fixture/canonical.json",
+        "sha256": "1db36da41b374e34cba63c5c125a9f4869933bc539c99255c2fc81fc9ed69ab3",
+        "size_bytes": 10,
+        "media_type": "image/png",
+        "role": "canonical",
+        "operation_id": "fixture",
+        "source_ids": [
+          "source-1"
+        ]
+      },
+      "canonical_edit_mask_ref": {
+        "schema_version": 1,
+        "task_id": "edit-child",
+        "artifact_id": "edit-mask",
+        "key": "edit-child/fixture/edit_mask.json",
+        "sha256": "470ad4e42d16954c43d8cde39b9390341f81a14c073795a8b26d2420c8373ccc",
+        "size_bytes": 10,
+        "media_type": "image/png",
+        "role": "edit_mask",
+        "operation_id": "fixture",
+        "source_ids": [
+          "source-1"
+        ]
+      },
+      "selection_ref": {
+        "schema_version": 1,
+        "task_id": "edit-child",
+        "artifact_id": "selection",
+        "key": "edit-child/fixture/selection.json",
+        "sha256": "5d7642cc69080cf161bddfd3b46d6188f43e9b7d7c2bc8aeb1ef833afac83214",
+        "size_bytes": 10,
+        "media_type": "application/json",
+        "role": "selection",
+        "operation_id": "fixture",
+        "source_ids": [
+          "source-1"
+        ]
+      },
+      "view_transform_ref": {
+        "schema_version": 1,
+        "task_id": "edit-child",
+        "artifact_id": "view-transform",
+        "key": "edit-child/fixture/view_transform.json",
+        "sha256": "58c7be04015190c40152e93ac220cb7c080eb4f0137b387bf297e71e92366b8e",
+        "size_bytes": 10,
+        "media_type": "application/json",
+        "role": "view_transform",
+        "operation_id": "fixture",
+        "source_ids": [
+          "source-1"
+        ]
+      },
+      "selection_revision": 0,
+      "selection_hash": "5d7642cc69080cf161bddfd3b46d6188f43e9b7d7c2bc8aeb1ef833afac83214",
+      "width": 64,
+      "height": 48,
+      "canonical_width": 64,
+      "canonical_height": 48,
+      "crop": [
+        0,
+        0,
+        64,
+        48
+      ],
+      "resize": [
+        64,
+        48
+      ],
+      "pad": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "mask_role": "edit_mask",
+      "mask_policy_version": "canonical-edit-v1",
+      "recipe_supports_mask": true
+    }
+  },
+  "generation_v1": {
+    "schema_version": 1,
+    "task_id": "edit-child",
+    "session_id": "session-fixture",
+    "intent": "image_to_image",
+    "user_intent": "Restore selected background",
+    "backend": "comfy",
+    "model": "sdxl-base-1.0",
+    "recipe": "sdxl-img2img",
+    "agent_model": "gpt-5.6-luna",
+    "agent_vlm_model": "gpt-5.6-luna",
+    "agent_endpoint_fingerprint": null,
+    "dependency_hashes": {},
+    "parameters": {
+      "seed": 7,
+      "steps": 20
+    },
+    "input_assets": [],
+    "acceptance_criteria": [
+      "Keep pixels outside the approved mask unchanged"
+    ],
+    "estimated_iteration_cost_usd": 0.0,
+    "estimated_iteration_gpu_minutes": 0.0,
+    "envelope": {
+      "backend": "comfy",
+      "model": "sdxl-base-1.0",
+      "recipe": "sdxl-img2img",
+      "output_count": 1,
+      "max_width": 64,
+      "max_height": 48,
+      "quality": null,
+      "background": null,
+      "max_steps": null,
+      "allowed_tools": [
+        "generate"
+      ],
+      "mutable_parameters": [
+        "negative_prompt",
+        "prompt",
+        "seed"
+      ],
+      "budget": {
+        "max_total_cost_usd": 1.0,
+        "max_iteration_cost_usd": 0.5,
+        "max_total_gpu_minutes": 10.0,
+        "max_iteration_gpu_minutes": 5.0,
+        "max_revisions": 2
+      }
+    }
+  },
+  "v1_canonical": "{\"acceptance_criteria\":[\"Keep pixels outside the approved mask unchanged\"],\"agent_endpoint_fingerprint\":null,\"agent_model\":\"gpt-5.6-luna\",\"agent_vlm_model\":\"gpt-5.6-luna\",\"backend\":\"comfy\",\"dependency_hashes\":{},\"envelope\":{\"allowed_tools\":[\"generate\"],\"backend\":\"comfy\",\"background\":null,\"budget\":{\"max_iteration_cost_usd\":0.5,\"max_iteration_gpu_minutes\":5.0,\"max_revisions\":2,\"max_total_cost_usd\":1.0,\"max_total_gpu_minutes\":10.0},\"max_height\":48,\"max_steps\":null,\"max_width\":64,\"model\":\"sdxl-base-1.0\",\"mutable_parameters\":[\"negative_prompt\",\"prompt\",\"seed\"],\"output_count\":1,\"quality\":null,\"recipe\":\"sdxl-img2img\"},\"estimated_iteration_cost_usd\":0.0,\"estimated_iteration_gpu_minutes\":0.0,\"input_assets\":[],\"intent\":\"image_to_image\",\"model\":\"sdxl-base-1.0\",\"parameters\":{\"seed\":7,\"steps\":20},\"recipe\":\"sdxl-img2img\",\"schema_version\":1,\"session_id\":\"session-fixture\",\"task_id\":\"edit-child\",\"user_intent\":\"Restore selected background\"}",
+  "v1_fingerprint": "91b30fb5e0ab7723deda523db2912c78d7dfe4b4edc373a63c22eb49cf24f76e",
+  "masked_fingerprint": "4d96c0d2eae02afad4acb3bdf4d1799cf5db0650a973b730152b45364c447f3d"
+}

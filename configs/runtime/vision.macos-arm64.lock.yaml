@@ -1,0 +1,52 @@
+schema_version: 1
+protocol_version: 1
+python: '3.12'
+ocr:
+  device: cpu
+  loader: paddle-static-inference
+  verification: local_files_and_release_metadata_verified
+  packages:
+    paddleocr:
+      version: 3.4.0
+      wheel: paddleocr-3.4.0-py3-none-any.whl
+      wheel_sha256: 67b28a98c8ce58668473702fa22a6053d959df1105ec430a578280356b889ba1
+      source: https://pypi.org/project/paddleocr/3.4.0/
+    paddlepaddle:
+      version: 3.2.2
+      wheel: paddlepaddle-3.2.2-cp312-cp312-macosx_11_0_arm64.whl
+      wheel_sha256: c62dab0d4df6de2978960832f0015a145c23cd379418d932ddd8f546629d1fe4
+      source: https://pypi.org/project/paddlepaddle/3.2.2/
+    paddlex:
+      version: 3.4.3
+      wheel: paddlex-3.4.3-py3-none-any.whl
+      wheel_sha256: 78aa8313e672ecbf27473b7afe7188b68716517b1b522060985d6d7dab1ed17c
+      source: https://pypi.org/project/paddlex/3.4.3/
+  models:
+    det:
+      id: PP-OCRv5_server_det
+      directory: .local/models/vision/ocr/PP-OCRv5_server_det
+      revision: bos-paddle3.0.0-22a33e0ba6a2
+      archive_source: https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_server_det_infer.tar
+      archive_sha256: 22a33e0ba6a21425ea4192da03bf4395c9a0c67902bd924b7328fc859073045d
+      license_id: Apache-2.0
+      license_status: verified
+      license_evidence_sha256: 3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e
+      source: https://github.com/PaddlePaddle/PaddleOCR/tree/v3.4.0
+      files:
+        inference.json: af5876933d8806a1b50d895867e0781e135cd92ff37381992828fc8d1b842d28
+        inference.pdiparams: 183146fe9d9910352f68482f623bcbbb9fa7b9e8fa1463b9ad288cef00524d2d
+        inference.yml: 28fb721efc3634fc8aa677e474b9602cb815a91cf569ef357a7a553d7b3ce685
+    rec:
+      id: PP-OCRv5_server_rec
+      directory: .local/models/vision/ocr/PP-OCRv5_server_rec
+      revision: bos-paddle3.0.0-d99be2ffd348
+      archive_source: https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_server_rec_infer.tar
+      archive_sha256: d99be2ffd348943ab52876179168be4fb5b14f5f0812f2ae4c76d89ec2ea750a
+      license_id: Apache-2.0
+      license_status: verified
+      license_evidence_sha256: 3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e
+      source: https://github.com/PaddlePaddle/PaddleOCR/tree/v3.4.0
+      files:
+        inference.json: 8e6e12e5d42531840310977fffb58165bf889fc5061408c5a8afdb6985f47fcb
+        inference.pdiparams: 63853f062a5f4089befc16f565a68277618e0da5cb45468b49d11079de0ada77
+        inference.yml: 2c719dba044c4e2228aef8ff92f5f575394d75d24c16de096a33b7cfd902f66d

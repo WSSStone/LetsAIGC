@@ -15,7 +15,7 @@ def test_tavily_quota_excludes_paygo_and_obeys_key_limit():
     assert quota.paygo_limit == 10000 and quota.paygo_usage is None
 
 
-@pytest.mark.parametrize("limit", [0, None, False, "100"])
+@pytest.mark.parametrize("limit", [0, False, "100", -1])
 def test_unverified_key_limit_semantics_remain_unknown(limit):
     quota = normalize_tavily(
         {"account": {"plan_usage": 0, "plan_limit": 100}, "key": {"usage": 0, "limit": limit}},
@@ -23,6 +23,35 @@ def test_unverified_key_limit_semantics_remain_unknown(limit):
         observed_at=1000,
     )
     assert quota.status == "unknown" and quota.remaining is None
+
+
+@pytest.mark.parametrize("usage,expected", [(0, 100), (75, 25), (100, 0), (101, 0)])
+def test_explicit_null_key_limit_uses_only_account_plan(usage, expected):
+    quota = normalize_tavily(
+        {"account": {"plan_usage": usage, "plan_limit": 100, "paygo_limit": 10000},
+         "key": {"usage": 10, "limit": None}},
+        scope_id="scope-test", observed_at=1000,
+    )
+    assert quota.remaining == expected and quota.total_limit == 100
+    assert quota.key_remaining is None
+    assert quota.status == ("known" if expected else "exhausted")
+
+
+@pytest.mark.parametrize("key", [{"usage": 0}, {}, {"limit": None}, {"usage": False, "limit": None}])
+def test_missing_key_limit_or_usage_does_not_imply_unlimited(key):
+    quota = normalize_tavily(
+        {"account": {"plan_usage": 0, "plan_limit": 100}, "key": key},
+        scope_id="scope-test", observed_at=1000,
+    )
+    assert quota.remaining is None and quota.status == "unknown"
+
+
+def test_unlimited_key_does_not_supply_unknown_account_quota():
+    quota = normalize_tavily(
+        {"account": {"paygo_limit": 10000}, "key": {"usage": 0, "limit": None}},
+        scope_id="scope-test", observed_at=1000,
+    )
+    assert quota.remaining is None and quota.status == "unknown"
 
 
 def test_known_zero_and_unknown_are_distinct_and_serpapi_pools_are_separate():

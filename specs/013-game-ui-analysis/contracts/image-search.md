@@ -28,6 +28,8 @@ Tavily `max_results` 只约束网页结果，本地另行限制图片候选。�
 
 SerpApi Account 官方明确不消耗搜索额度；额外 credits 与套餐池分别标记，不默认称免费。Tavily 已知数值时 `plan_remaining=max(0,plan_limit-plan_usage)`，再与有效 key 剩余取最小值；PAYGO 池默认排除。key.limit 的零/null 特殊语义没有经过验证时保持 unknown，不当无限。可靠的明确余额零为 exhausted；字段语义未知与余额零必须区分。
 
+2026-09-06核实[官方Usage OpenAPI](https://docs.tavily.com/documentation/api-reference/endpoint/usage.md)：显式 `key.limit=null` 表示该key无独立上限；key.usage为有效非负整数时，仅以账户套餐剩余额度准入，key_remaining保持null，不伪造无限数值。字段缺失、零或类型异常仍为unknown；账户额度未知不准入，套餐用尽为exhausted，PAYGO仍排除。
+
 每个适配器的 pricing 配置必须含搜索和 probe 计价依据、保守单次金额上界以及条款版本；未知不记零。Tavily Usage 不在本计划中假定免费；T011/T014 先核实并记录其计价依据，未就绪时该 probe 能力返回 pricing_unavailable，manual 与另一家已合格搜索仍可用。
 
 首版的根预算身份就是单任务 task_id，五张额度表在账本 v3 加入，共享额度不依赖后续的父子预算表。

@@ -8,9 +8,15 @@
 它们约束 Codex 如何开发本项目，不是 LetsAIGC 的产品功能。产品控制面是
 `src/letsaigc`、CLI、配置/schema、生成后端、ComfyUI 与媒体管线。
 
-## 正在实施的游戏 UI 工作流
+## 游戏 UI 单图解析预览
 
-本项唯一执行入口是 [游戏 UI 实施主计划](C:/Programs/LetsAIGC/.doc/plan/game-ui-analysis-workflow-plan.md)：需求、G00—G12 依赖、当前步骤和验收证据都在同一文件中。旧 UIProvider/搜索说明只作跳转，不再维护另一份任务表。`.doc/` 是主仓库本地资料，独立 worktree 或新机器不会自动带上它；取得该计划后再继续实施。
+游戏 UI 单图解析已提供可用预览：支持手动截图、SerpApi/Tavily 搜索输入，经 CPU OCR/VLM 输出布局、文字、矩形切片、标注图与来源记录。三例商业游戏截图、两家真实搜索和一次 OCR 后 Worker 中断恢复已验证；完整质量验收待完成。
+
+从 [单图使用指南](docs/game-ui-analysis.md) 开始：准备本地 OCR/Temporal 和账户配置，运行 `ui doctor`，再依次 `ui import`（手动输入）、`ui plan`、核对指纹与预算、`ui execute --approve`、`ui inspect`。所有环境命令使用 `conda run --no-capture-output -n letsaigc-core ...`。矩形切片保留原背景；分割、补图、批次与局部修订尚未开放。实施状态与后续任务见 [013 任务记录](specs/013-game-ui-analysis/tasks.md)。
+
+人工校正预览已提供：运行 `conda run --no-capture-output -n letsaigc-core python -m letsaigc ui review TASK_ID`，在本地页面画框、改字、分类、调整层级并保存草稿。确认版本生成独立布局、有效文字、切片与标注图，保留原始 OCR；不调用模型，也不需要 Torch。三例浏览器交互、保存冲突和确认中断恢复已验收。启动与恢复步骤见[人工校正使用指南](docs/game-ui-analysis.md#人工校正预览)。
+
+编辑区域准备已提供：可从确认后的人工校正版或显式选择的原自动布局建立计划，预览并选择候选区域，不重复 OCR/VLM。见[编辑区域准备](docs/game-ui-analysis.md#编辑区域准备)。SAM 分割和原生蒙版补图已完成离线合同测试，真实 GPU 验收与执行工作流接线仍待完成。
 
 ## Agent 工作方式
 

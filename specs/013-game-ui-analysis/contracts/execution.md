@@ -1,12 +1,13 @@
 # 013 UI 执行与批准契约
 
-状态：设计合同；未实现。依据[规格](../spec.md)、[数据模型](../data-model.md)和[当前任务](../tasks.md)。能力按交付阶段启用，旧G依赖只作历史索引。
+状态：单图parse与双后端预览已交付；人工校正预览已交付，后续GPU/批次为待实施设计。依据[规格](../spec.md)、[数据模型](../data-model.md)和[当前任务](../tasks.md)。能力按交付阶段启用，旧G依赖只作历史索引。
 
 ## 静态流程与分期
 
 | 阶段 | workflow_type / Temporal名称 | 业务步骤 |
 |---|---|---|
 | 首版 | ui_analysis / letsaigc.ui.analysis.v1 | provide(manual/search，单图) → canonical → OCR → VLM → layout/crops → project |
+| 人工校正 | 独立本地review服务，不创建Temporal Workflow | 打开已完成parse → 草稿编辑/保存 → 验证/CPU物化 → 发布确认版本 |
 | 编辑 | ui_analysis的decompose/reconstruct分支 | 布局后自动提案/预览 → 具体分割批准 → 按需最终mask补图批准 → review |
 | 编辑 | ui_segmentation / letsaigc.ui.segmentation.v1 | 具体图/提示/选择校验 → SAM → mask/alpha/glyph → 收集 |
 | 编辑 | ui_inpaint / letsaigc.ui.inpaint.v1 | 具体image/mask校验 → 编译/准备 → submit/observe/collect → CPU精确合成 |
@@ -27,6 +28,8 @@
 7. 父子分析授权仅继承根允许子集；GPU具体批准不得继承。子请求冻结selection_ref/hash/version、实际图/提示或最终mask。最终非零mask不得超出获批区域或进入keep区域，根预算和编辑链计数不重置。
 
 UI plan仍为零模型成本；旧Agent Responses规划预留保持 `$0.03 + 每张输入 $0.01`。正常用户无需手填来源/hash或机器选择文件；执行批准始终在模型之外。
+
+首版实现补充（2026-09-06）：新计划的VLM策略冻结 `evidence_policy=source-id-enum-v1`。运行时从已核验的view/OCR输入生成共享InputEvidenceId枚举，约束所有evidence_ids；模型元素ID不能替代来源证据ID。本地几何、层级、引用与费用校验仍执行。历史策略无此字段时沿用原请求Schema，不将新策略套用到已批准的旧计划。枚举超出提供方文档限制时在请求前拒绝input_limit，不截断OCR、不删除未知引用或自动补发。
 
 ## 操作与最小恢复边界
 
@@ -103,3 +106,13 @@ UI状态与公共PipelineState分开：awaiting_selection仅适用于含混/缺�
 ## 验证职责
 
 共享执行合同维护一次无批准/hash/取消/重复受理/unknown/结算矩阵。搜索增加额度竞争与切换特例，GPU增加实际输入和释放边界，批次增加父子关系；业务链路核对用户产物，不复制相同公共用例。最终复用仍有效的证据，仅补缺口和变更影响，映射见新Tasks。
+
+## 人工校正增量的执行边界
+
+[review合同](review.md)是T043—T050的机器/页面约束。人工版本使用ui_review_*三表和独立ReviewVersion，不把自由绘图写进UIStepBinding.revision≤2或旧PipelinePlan。纯CPU重建记录本地动作/代码版本/输入输出hash，外部调用0；不新建副作用operation来伪造费用或批准，不改变原任务succeeded、已耗预算或unknown预留。
+
+确认须先保存冻结草稿、完成所有物化并校验hash，再以expected draft/confirmed head事务发布；重复请求幂等，失败head不动。回环HTTP会话关闭不取消原Workflow，不保持长期Temporal Activity等待画框。T044迁移v3→v4仅review三表，T020父子三表迁移改v4→v5；必须停所有写入者、备份且验证回滚，旧二进制拒绝不支持版本。
+
+T021/T028支持采用ReviewedLayoutBinding，分割/补图子请求冻结review版本/最终selection与mask。校正发布不修改已冻结计划；显式改用新版本才形成新子计划和适用批准，旧待执行child失效，已提交/unknown原请求先取消或对账。所有计数沿原根组/图像链累计，人工保存不重置付费次数；人工锁定及纠正不提高事实置信度或许可通道。T029局部模型输出为待采纳建议，未采纳不能覆盖人工字段。
+
+T019 的 GPU/父子差异先行用例及内部服务接入约定见 [editing.md](editing.md)；T003 通用矩阵继续复用。

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+if TYPE_CHECKING:
+    from .pipeline import ArtifactRef
 
 
 class StrictAgentModel(BaseModel):
@@ -108,6 +111,75 @@ class ExecutionEnvelope(StrictAgentModel):
         return sorted(set(values))
 
 
+StrictMaskCoordinate = Annotated[int, Field(ge=0, strict=True)]
+StrictMaskSize = Annotated[int, Field(gt=0, strict=True)]
+StrictMaskPadding = Annotated[int, Field(ge=0, strict=True)]
+
+
+class ImageMaskBinding(StrictAgentModel):
+    """Frozen image/mask preparation and selection identity for inpainting."""
+
+    image_ref: ArtifactRef
+    mask_ref: ArtifactRef
+    canonical_ref: ArtifactRef
+    canonical_edit_mask_ref: ArtifactRef
+    selection_ref: ArtifactRef
+    view_transform_ref: ArtifactRef
+    selection_revision: int = Field(ge=0, strict=True)
+    selection_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    width: int = Field(gt=0, le=8192, strict=True)
+    height: int = Field(gt=0, le=8192, strict=True)
+    canonical_width: int = Field(gt=0, le=8192, strict=True)
+    canonical_height: int = Field(gt=0, le=8192, strict=True)
+    crop: tuple[StrictMaskCoordinate, StrictMaskCoordinate, StrictMaskCoordinate, StrictMaskCoordinate]
+    resize: tuple[StrictMaskSize, StrictMaskSize]
+    pad: tuple[StrictMaskPadding, StrictMaskPadding, StrictMaskPadding, StrictMaskPadding]
+    mask_role: Literal["edit_mask"] = "edit_mask"
+    mask_policy_version: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
+    recipe_supports_mask: Literal[True] = True
+
+    @model_validator(mode="after")
+    def validate_binding(self):
+        refs = (
+            self.image_ref,
+            self.mask_ref,
+            self.canonical_ref,
+            self.canonical_edit_mask_ref,
+            self.selection_ref,
+            self.view_transform_ref,
+        )
+        expected_roles = ("image", "edit_mask", "canonical", "edit_mask", "selection", "view_transform")
+        if any(ref.role != role for ref, role in zip(refs, expected_roles, strict=True)):
+            raise ValueError("Image mask references have invalid artifact roles")
+        if len({ref.task_id for ref in refs}) != 1:
+            raise ValueError("Image mask references must share task scope")
+        if self.selection_hash != self.selection_ref.sha256:
+            raise ValueError("Selection hash does not match selection_ref")
+        x1, y1, x2, y2 = self.crop
+        if x2 <= x1 or y2 <= y1 or x2 > self.canonical_width or y2 > self.canonical_height:
+            raise ValueError("Image mask crop requires positive area")
+        if self.width != self.resize[0] + self.pad[0] + self.pad[2]:
+            raise ValueError("Prepared width must include horizontal padding")
+        if self.height != self.resize[1] + self.pad[1] + self.pad[3]:
+            raise ValueError("Prepared height must include vertical padding")
+        return self
+
+    @classmethod
+    def model_validate(cls, obj: Any, **kwargs: Any):
+        _rebuild_editing_models()
+        return super().model_validate(obj, **kwargs)
+
+    @classmethod
+    def model_validate_json(cls, json_data: Any, **kwargs: Any):
+        _rebuild_editing_models()
+        return super().model_validate_json(json_data, **kwargs)
+
+    @classmethod
+    def model_json_schema(cls, **kwargs: Any):
+        _rebuild_editing_models()
+        return super().model_json_schema(**kwargs)
+
+
 class GenerationPlan(StrictAgentModel):
     schema_version: Literal[1] = 1
     task_id: str
@@ -137,6 +209,69 @@ class GenerationPlan(StrictAgentModel):
         ):
             raise ValueError("plan and execution envelope disagree")
         return self
+
+
+class MaskedGenerationPlan(GenerationPlan):
+    """GenerationPlan v2 with an explicit, frozen edit mask binding.
+
+    This is intentionally a separate model from ``GenerationPlan``.  The v1
+    reader therefore continues to reject v2 payloads and its canonical bytes
+    remain unchanged.
+    """
+
+    schema_version: Literal[2] = 2
+    intent: Literal[GenerationIntent.image_to_image] = GenerationIntent.image_to_image
+    backend: Literal["comfy"] = "comfy"
+    recipe: str = Field(min_length=1)
+    image_mask: ImageMaskBinding
+
+    @model_validator(mode="after")
+    def validate_masked_plan(self):
+        binding_refs = (
+            self.image_mask.image_ref,
+            self.image_mask.mask_ref,
+            self.image_mask.canonical_ref,
+            self.image_mask.canonical_edit_mask_ref,
+            self.image_mask.selection_ref,
+            self.image_mask.view_transform_ref,
+        )
+        if any(ref.task_id != self.task_id for ref in binding_refs):
+            raise ValueError("Masked plan references must belong to the plan task")
+        if self.image_mask.width > self.envelope.max_width or self.image_mask.height > self.envelope.max_height:
+            raise ValueError("Prepared image exceeds execution envelope")
+        if self.estimated_iteration_cost_usd > self.envelope.budget.max_iteration_cost_usd:
+            raise ValueError("Masked plan cost exceeds iteration budget")
+        if self.estimated_iteration_gpu_minutes > self.envelope.budget.max_iteration_gpu_minutes:
+            raise ValueError("Masked plan GPU estimate exceeds iteration budget")
+        return self
+
+    @classmethod
+    def model_validate(cls, obj: Any, **kwargs: Any):
+        _rebuild_editing_models()
+        return super().model_validate(obj, **kwargs)
+
+    @classmethod
+    def model_validate_json(cls, json_data: Any, **kwargs: Any):
+        _rebuild_editing_models()
+        return super().model_validate_json(json_data, **kwargs)
+
+    @classmethod
+    def model_json_schema(cls, **kwargs: Any):
+        _rebuild_editing_models()
+        return super().model_json_schema(**kwargs)
+
+
+def _rebuild_editing_models() -> None:
+    """Resolve ArtifactRef after the pipeline module has completed loading."""
+    try:
+        from .pipeline import ArtifactRef
+    except ImportError:
+        # ``pipeline`` imports TaskBudget from this module.  During that one
+        # import direction ArtifactRef is not defined yet; a later DTO call
+        # retries the rebuild after pipeline has completed.
+        return
+    ImageMaskBinding.model_rebuild(_types_namespace={"ArtifactRef": ArtifactRef})
+    MaskedGenerationPlan.model_rebuild(_types_namespace={"ArtifactRef": ArtifactRef})
 
 
 class ApprovalRecord(StrictAgentModel):
@@ -264,3 +399,6 @@ class CompiledWorkflow(StrictAgentModel):
     local_contract_path: str
     contract_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     validation: dict[str, bool] = Field(default_factory=dict)
+
+
+_rebuild_editing_models()

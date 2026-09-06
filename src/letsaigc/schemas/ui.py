@@ -98,8 +98,150 @@ class UIEvaluationPolicy(PipelineModel):
 
 
 UICapability = Literal[
-    "ui.manual", "ui.search", "ui.normalize", "ui.ocr", "ui.analyze", "ui.layout", "ui.crop", "ui.project"
+    "ui.manual",
+    "ui.search",
+    "ui.normalize",
+    "ui.ocr",
+    "ui.analyze",
+    "ui.layout",
+    "ui.crop",
+    "ui.project",
+    "ui.segment",
+    "ui.inpaint",
 ]
+
+
+StrictCoordinate = Annotated[int, Field(ge=0, strict=True)]
+StrictPointCoordinate = Annotated[float, Field(ge=0, strict=True)]
+
+
+class UISelectionBBox(PipelineModel):
+    kind: Literal["bbox"] = "bbox"
+    xyxy: tuple[StrictCoordinate, StrictCoordinate, StrictCoordinate, StrictCoordinate]
+
+    @model_validator(mode="after")
+    def positive_area(self):
+        x1, y1, x2, y2 = self.xyxy
+        if x2 <= x1 or y2 <= y1:
+            raise ValueError("Selection box requires positive area")
+        return self
+
+
+class UISelectionElement(PipelineModel):
+    kind: Literal["element"] = "element"
+    element_id: Identifier
+
+
+UISelectionRegion = Annotated[UISelectionBBox | UISelectionElement, Field(discriminator="kind")]
+
+
+class UISelectionSource(PipelineModel):
+    source_id: Identifier
+    original_sha256: Digest
+    layout_ref: ArtifactRef | None = Field(default=None, exclude_if=lambda value: value is None)
+    target_regions: list[UISelectionRegion] = Field(min_length=1, max_length=64)
+    keep_elements: list[Identifier] = Field(default_factory=list, max_length=64)
+    remove_elements: list[Identifier] = Field(default_factory=list, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_regions_and_layout(self):
+        if self.layout_ref is not None and self.layout_ref.role not in {"layout", "review_layout"}:
+            raise ValueError("Selection layout must be a layout or review_layout artifact")
+        needs_layout = (
+            any(region.kind == "element" for region in self.target_regions)
+            or self.keep_elements
+            or self.remove_elements
+        )
+        if needs_layout:
+            if self.layout_ref is None:
+                raise ValueError("Element selections require a frozen layout reference")
+        if len(set(self.keep_elements)) != len(self.keep_elements):
+            raise ValueError("Duplicate keep element")
+        if len(set(self.remove_elements)) != len(self.remove_elements):
+            raise ValueError("Duplicate remove element")
+        if set(self.keep_elements) & set(self.remove_elements):
+            raise ValueError("Keep and remove elements must be disjoint")
+        region_keys = [digest(region) for region in self.target_regions]
+        if len(set(region_keys)) != len(region_keys):
+            raise ValueError("Duplicate target region")
+        return self
+
+
+class UISelection(PipelineModel):
+    schema_version: Literal[1] = 1
+    sources: list[UISelectionSource] = Field(min_length=1, max_length=10)
+
+    @model_validator(mode="after")
+    def unique_sources(self):
+        source_ids = [source.source_id for source in self.sources]
+        if len(set(source_ids)) != len(source_ids):
+            raise ValueError("Duplicate selection source")
+        return self
+
+
+class UISelectionCandidate(PipelineModel):
+    candidate_id: Identifier
+    task_id: Identifier
+    selection_ref: ArtifactRef
+    preview_ref: ArtifactRef
+    evidence_ref: ArtifactRef
+    origin: Literal["agent_proposed", "user_override"]
+    revision: int = Field(ge=0, strict=True)
+    state: Literal["proposed", "selected", "superseded", "invalid"]
+
+    @model_validator(mode="after")
+    def consistent_candidate_refs(self):
+        if self.selection_ref.role != "selection":
+            raise ValueError("Candidate selection_ref must have selection role")
+        if self.preview_ref.role != "selection_preview":
+            raise ValueError("Candidate preview_ref must have selection_preview role")
+        if self.evidence_ref.role != "selection_evidence":
+            raise ValueError("Candidate evidence_ref must have selection_evidence role")
+        refs = (self.selection_ref, self.preview_ref, self.evidence_ref)
+        if any(ref.task_id != self.task_id for ref in refs):
+            raise ValueError("Candidate references must share task scope")
+        return self
+
+
+class UISegmentationPrompt(PipelineModel):
+    element_id: Identifier
+    box: tuple[StrictCoordinate, StrictCoordinate, StrictCoordinate, StrictCoordinate]
+    points: list[tuple[StrictPointCoordinate, StrictPointCoordinate]] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def positive_box(self):
+        x1, y1, x2, y2 = self.box
+        if x2 <= x1 or y2 <= y1:
+            raise ValueError("Segmentation prompt box requires positive area")
+        return self
+
+
+class UISegmentationRequest(PipelineModel):
+    schema_version: Literal[1] = 1
+    canonical_ref: ArtifactRef
+    selection_ref: ArtifactRef
+    selection_revision: int = Field(ge=0, strict=True)
+    selection_hash: Digest
+    prompts: list[UISegmentationPrompt] = Field(min_length=1, max_length=64)
+    model_snapshot_ref: ArtifactRef
+    prompt_version: Identifier
+    resources: UIResourceLimits = Field(default_factory=UIResourceLimits)
+    result_roles: list[Identifier] = Field(min_length=1, max_length=4)
+
+    @model_validator(mode="after")
+    def validate_segmentation_refs(self):
+        if self.canonical_ref.role != "canonical":
+            raise ValueError("Segmentation requires a canonical image")
+        if self.selection_ref.role != "selection":
+            raise ValueError("Segmentation requires a selection artifact")
+        if self.model_snapshot_ref.role != "model_snapshot":
+            raise ValueError("Segmentation requires a model snapshot")
+        if self.selection_hash != self.selection_ref.sha256:
+            raise ValueError("Selection hash does not match selection_ref")
+        refs = (self.canonical_ref, self.selection_ref, self.model_snapshot_ref)
+        if len({ref.task_id for ref in refs}) != 1:
+            raise ValueError("Segmentation references must share task scope")
+        return self
 
 
 class UIStepBinding(PipelineModel):
@@ -111,14 +253,33 @@ class UIStepBinding(PipelineModel):
     source_id: Identifier | None = None
     inputs: list[ArtifactRef] = Field(min_length=1, max_length=32)
     parameters_ref: ArtifactRef | None = None
+    selection_ref: ArtifactRef | None = Field(default=None, exclude_if=lambda value: value is None)
+    selection_revision: int | None = Field(default=None, ge=0, strict=True, exclude_if=lambda value: value is None)
+    selection_hash: Digest | None = Field(default=None, exclude_if=lambda value: value is None)
     dependency_hashes: dict[Identifier, Digest] = Field(default_factory=dict)
     outputs: list[ArtifactRef] = Field(default_factory=list, max_length=32)
 
     @model_validator(mode="after")
     def consistent_scope(self):
-        refs = [*self.inputs, *self.outputs, *([self.parameters_ref] if self.parameters_ref else [])]
+        refs = [
+            *self.inputs,
+            *self.outputs,
+            *([self.parameters_ref] if self.parameters_ref else []),
+            *([self.selection_ref] if self.selection_ref else []),
+        ]
         if any(ref.task_id != self.task_id for ref in refs):
             raise ValueError("Step references must belong to the task")
+        edit_step = self.capability in {"ui.segment", "ui.inpaint"}
+        selection_values = (self.selection_ref, self.selection_revision, self.selection_hash)
+        if edit_step and any(value is None for value in selection_values):
+            raise ValueError("Editing steps require a frozen selection binding")
+        if any(value is not None for value in selection_values) and any(value is None for value in selection_values):
+            raise ValueError("Selection binding fields must be provided together")
+        if self.selection_ref is not None:
+            if self.selection_ref.role != "selection":
+                raise ValueError("Step selection_ref must have selection role")
+            if self.selection_hash != self.selection_ref.sha256:
+                raise ValueError("Step selection hash does not match selection_ref")
         return self
 
     @property

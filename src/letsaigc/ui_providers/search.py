@@ -23,6 +23,20 @@ from ..schemas.ui_provider import UIProvisionResult, UISource
 from ..ui_analysis.normalize import validate_ui_image
 
 
+def metadata_rejection(title, description, terms):
+    """Exclude explicit ranking graphics; remaining term matches are not visual verification."""
+    declared = (title + " " + description).casefold()
+    if re.search(
+        r"\btier[\s_-]*lists?\b|\bcharacter(?:s)?\s+(?:rankings?|ratings?)\b"
+        r"|角色评级|角色排行|角色梯度|强度榜|强度排行|节奏榜",
+        declared,
+    ):
+        return "non_ui_tier_list"
+    if not any(term in declared for term in terms if len(term) >= 2):
+        return "query_mismatch"
+    return None
+
+
 def perceptual_hash(image):
     """Version dct-64-v1: 32x32 luma, 8x8 DCT median, DC bit excluded."""
     reduced = image.convert("L").resize((32, 32), Image.Resampling.LANCZOS)
@@ -319,9 +333,8 @@ class SearchAcquisition:
                         "description": item.description,
                         "declared_width": item.declared_width,
                         "declared_height": item.declared_height,
-                        "metadata_relevant": any(
-                            term in (item.title + " " + item.description).casefold() for term in terms if len(term) >= 2
-                        ),
+                        "metadata_relevant": metadata_rejection(item.title, item.description, terms) is None,
+                        "metadata_rejection_reason": metadata_rejection(item.title, item.description, terms),
                     }
                     for item in receipt.candidates
                 ]
@@ -363,11 +376,9 @@ class SearchAcquisition:
         for candidate in receipt.candidates:
             if downloads >= request.limits.downloads_per_query:
                 break
-            declared_text = (candidate.title + " " + candidate.description).casefold()
-            relevant = any(term in declared_text for term in terms if len(term) >= 2)
             # This deterministic filter uses only provider-declared relevance;
             # image semantics/quality remain the responsibility of the real VLM.
-            if not relevant:
+            if metadata_rejection(candidate.title, candidate.description, terms) is not None:
                 continue
             downloads += 1
             binding = UIStepBinding(

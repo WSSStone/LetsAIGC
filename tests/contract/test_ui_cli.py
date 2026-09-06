@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from typer.testing import CliRunner
 
 from letsaigc.cli import app
@@ -35,7 +36,12 @@ def test_cli_import_plan_and_exact_fingerprint_without_network(tmp_path, ui_fixt
     assert json.loads(rejected.stdout)["error"]["code"] == "plan_changed"
 
 
-def test_cli_preview_rejects_editing_instead_of_downgrading(tmp_path):
+def test_cli_editing_plan_stays_offline_and_execution_waits_for_capability(tmp_path, monkeypatch):
+    from letsaigc.ui_analysis import cli
+
+    service = PipelineService(tmp_path / "editing", ui_schema=4)
+    monkeypatch.setattr(cli, "service", lambda: service)
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.openai.com/v1")
     result = CliRunner().invoke(
         app,
         [
@@ -52,16 +58,24 @@ def test_cli_preview_rejects_editing_instead_of_downgrading(tmp_path):
             "configs/ui-analysis/budget-example.yaml",
         ],
     )
-    assert result.exit_code == 3
-    assert json.loads(result.stdout)["error"]["code"] == "capability_not_ready"
+    assert result.exit_code == 0, result.stdout
+    planned = json.loads(result.stdout)
+    assert planned["output_mode"] == "reconstruct"
+    assert service.ledger.list_operations(planned["task_id"]) == []
+    executed = CliRunner().invoke(app, [
+        "--json", "ui", "execute", planned["task_id"], "--approve", planned["plan_fingerprint"],
+    ])
+    assert executed.exit_code == 3
+    assert json.loads(executed.stdout)["error"]["code"] == "capability_not_ready"
 
 
-def test_search_plan_freezes_both_providers_without_probes(tmp_path, monkeypatch):
+@pytest.mark.parametrize("schema_version", [3, 4, 5])
+def test_search_plan_freezes_both_providers_without_probes(tmp_path, monkeypatch, schema_version):
     from letsaigc.schemas.pipeline import ArtifactRef
     from letsaigc.schemas.ui import UIAnalysisRequest
     from letsaigc.ui_analysis import cli
 
-    service = PipelineService(tmp_path / "search", ui_schema=3)
+    service = PipelineService(tmp_path / "search", ui_schema=schema_version)
     monkeypatch.setattr(cli, "service", lambda: service)
     monkeypatch.setenv("LLM_BASE_URL", "https://api.openai.com/v1")
     result = CliRunner().invoke(

@@ -38,9 +38,7 @@ def _gpu() -> Check:
     ]
     try:
         completed = subprocess.run(command, capture_output=True, text=True, timeout=10, check=True)
-        name, total, free, driver = [
-            part.strip() for part in completed.stdout.splitlines()[0].split(",")
-        ]
+        name, total, free, driver = [part.strip() for part in completed.stdout.splitlines()[0].split(",")]
         total_mib, free_mib = int(total), int(free)
         status = "pass" if total_mib >= 10_000 else "fail"
         return Check(
@@ -73,9 +71,7 @@ def _conda_envs() -> Check:
             {"missing": missing},
         )
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
-        return Check(
-            "runtime.conda_envs", "fail", "conda environment query failed", {"error": str(exc)}
-        )
+        return Check("runtime.conda_envs", "fail", "conda environment query failed", {"error": str(exc)})
 
 
 def _port(host: str, port: int) -> Check:
@@ -104,6 +100,33 @@ def _media_tooling() -> Check:
     )
 
 
+def review_readiness():
+    """Read-only local editor readiness; never contacts inference providers."""
+    import sqlite3
+    from pathlib import Path
+
+    from .execution.temporal.config import runtime_root
+
+    directory = Path(__file__).parent / "ui_analysis" / "review_web"
+    files_ready = all((directory / name).is_file() for name in ("index.html", "app.js", "state.js", "styles.css"))
+    path = runtime_root() / "ledger.sqlite"
+    version = None
+    if path.is_file():
+        try:
+            with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as db:
+                version = db.execute("PRAGMA user_version").fetchone()[0]
+        except sqlite3.Error:
+            pass
+    return {
+        "ready": files_ready and version == 4,
+        "static_files_ready": files_ready,
+        "ledger_version": version,
+        "required_ledger_version": 4,
+        "requires_torch": False,
+        "external_calls": 0,
+    }
+
+
 def run_doctor() -> dict:
     root = find_repo_root()
     memory = psutil.virtual_memory()
@@ -111,9 +134,7 @@ def run_doctor() -> dict:
     disk_target.mkdir(parents=True, exist_ok=True)
     disk = shutil.disk_usage(disk_target)
     checks = [
-        Check(
-            "platform.os", "pass" if platform.system() == "Windows" else "warn", platform.platform()
-        ),
+        Check("platform.os", "pass" if platform.system() == "Windows" else "warn", platform.platform()),
         Check(
             "platform.python",
             "pass" if sys.version_info[:2] == (3, 12) else "warn",

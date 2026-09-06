@@ -37,7 +37,7 @@ class PipelineService:
         self.mlflow_enabled = mlflow_enabled
 
     def backend(self, plan: PipelinePlan):
-        if plan.workflow_type == "ui_analysis":
+        if plan.workflow_type == "ui_analysis" or plan.workflow_type.startswith("ui_"):
             raise PipelineError("invalid_step", "UI workflows must use the registered step entrypoint")
         capability = validate_registration(plan)
         if capability.id not in self.backends:
@@ -342,7 +342,7 @@ class PipelineService:
 
         request = UIAnalysisRequest.model_validate(request.model_dump(mode="json"))
         with self.ledger.transaction() as db:
-            if db.execute("PRAGMA user_version").fetchone()[0] not in {2, 3}:
+            if db.execute("PRAGMA user_version").fetchone()[0] not in {2, 3, 4, 5}:
                 raise PipelineError("migration_required", "Stop writers and migrate the UI ledger to v2")
         for ref in request.references():
             if ref.task_id != task_id:
@@ -368,6 +368,146 @@ class PipelineService:
         self.ledger.register(plan)
         return plan
 
+    def ui_child_plan(
+        self,
+        task_id: str,
+        *,
+        parent_task_id: str,
+        purpose: str,
+        source_ids: list[str],
+        request_ref: ArtifactRef,
+        selection_ref: ArtifactRef,
+        selection_revision: int,
+        budget,
+    ) -> PipelinePlan:
+        """Register a segmentation/inpaint child without invoking a provider."""
+        from .ui_children import (
+            budget_subset,
+            child_definition,
+            validate_request,
+            validate_selection,
+        )
+
+        if purpose not in {"segmentation", "inpaint"}:
+            raise PipelineError("invalid_child", "Unknown UI child purpose")
+        if task_id == parent_task_id:
+            raise PipelineError("invalid_child", "A child cannot parent itself")
+        if type(selection_revision) is not int or selection_revision < 0:
+            raise PipelineError("invalid_child", "Selection revision must be a non-negative integer")
+        if len(source_ids) != len(set(source_ids)) or not source_ids:
+            raise PipelineError("source_scope", "Child source IDs must be unique and non-empty")
+        child_budget = TaskBudget.model_validate(
+            budget.model_dump(mode="json") if hasattr(budget, "model_dump") else budget
+        )
+        with self.ledger.transaction() as db:
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+            if version < 5:
+                raise PipelineError("migration_required", "Migrate the UI ledger to v5 before registering children")
+            parent_row = db.execute("SELECT plan FROM tasks WHERE task_id=?", (parent_task_id,)).fetchone()
+            if parent_row is None:
+                raise PipelineError("unknown_parent", "Unknown parent task")
+            parent_plan = PipelinePlan.model_validate_json(parent_row["plan"])
+            if parent_plan.workflow_type not in {"ui_analysis", "ui_segmentation", "ui_inpaint"}:
+                raise PipelineError("invalid_child", "Only UI tasks can parent UI children")
+            child_root_row = db.execute(
+                "SELECT root_task_id FROM ui_child_bindings WHERE task_id=?", (parent_task_id,)
+            ).fetchone()
+            root_task_id = child_root_row["root_task_id"] if child_root_row else parent_task_id
+            root_row = db.execute("SELECT plan FROM tasks WHERE task_id=?", (root_task_id,)).fetchone()
+            group_row = db.execute(
+                "SELECT budget FROM ui_budget_groups WHERE root_task_id=?", (root_task_id,)
+            ).fetchone()
+            if root_row is None or group_row is None:
+                raise PipelineError("unknown_parent", "Root UI budget group is unknown")
+            root_plan = PipelinePlan.model_validate_json(root_row["plan"])
+            if not budget_subset(child_budget, root_plan.envelope.budget) or not budget_subset(
+                child_budget, parent_plan.envelope.budget
+            ):
+                raise PipelineError("budget_scope", "Child budget must be a subset of its parent and root budget")
+            root_sources = {ref.artifact_id for ref in root_plan.inputs}
+            parent_binding = db.execute(
+                "SELECT source_ids FROM ui_child_bindings WHERE task_id=?", (parent_task_id,)
+            ).fetchone()
+            parent_sources = (
+                set(json.loads(parent_binding["source_ids"])) if parent_binding else root_sources
+            )
+            if any(source not in parent_sources for source in source_ids):
+                raise PipelineError("source_scope", "Child source is outside the root task")
+            source_hashes = {ref.artifact_id: ref.sha256 for ref in root_plan.inputs if ref.role == "original"}
+            existing = db.execute(
+                "SELECT root_task_id FROM ui_child_bindings WHERE task_id=?", (task_id,)
+            ).fetchone()
+            if existing and existing["root_task_id"] != root_task_id:
+                raise PipelineError("child_cycle", "Child task belongs to another root")
+
+        # Content is verified before registration.  The root selection is
+        # re-materialized in the child scope so later execution never trusts a
+        # cross-task ArtifactRef.
+        request_ref = ArtifactRef.model_validate(request_ref.model_dump(mode="json"))
+        selection_ref = ArtifactRef.model_validate(selection_ref.model_dump(mode="json"))
+        if request_ref.task_id != task_id:
+            raise PipelineError("artifact_scope", "Child request must already be in child scope")
+        self.artifacts.read(request_ref)
+        validate_selection(
+            self.artifacts,
+            selection_ref,
+            source_ids=source_ids,
+            root_task_id=root_task_id,
+            source_hashes=source_hashes,
+        )
+        selection_bytes = self.artifacts.read(selection_ref)
+        local_selection = self.artifacts.put(
+            task_id,
+            "input",
+            selection_bytes,
+            role="selection",
+            media_type=selection_ref.media_type,
+            source_ids=[selection_ref.artifact_id],
+        )
+        child_request = validate_request(
+            self.artifacts,
+            request_ref,
+            task_id=task_id,
+            purpose=purpose,
+            selection_ref=local_selection,
+            selection_revision=selection_revision,
+        )
+        if purpose == "inpaint":
+            declared_budget = TaskBudget.model_validate(child_request["envelope"]["budget"])
+            if declared_budget != child_budget:
+                raise PipelineError("budget_scope", "Masked plan and child approval budget must agree")
+        workflow_type, capability = child_definition(purpose)
+        plan = PipelinePlan(
+            task_id=task_id,
+            workflow_type=workflow_type,
+            inputs=[request_ref, local_selection],
+            envelope=ApprovalEnvelope(stage="generation", allowed_capabilities=[capability], budget=child_budget),
+            parameters={
+                "parent_task_id": parent_task_id,
+                "root_task_id": root_task_id,
+                "purpose": purpose,
+                "request_ref": request_ref.model_dump(mode="json"),
+                "selection_ref": local_selection.model_dump(mode="json"),
+                "selection_revision": selection_revision,
+            },
+        )
+        self.ledger.register_child(
+            plan,
+            parent_task_id=parent_task_id,
+            root_task_id=root_task_id,
+            purpose=purpose,
+            source_ids=source_ids,
+            request_ref=request_ref,
+            selection_ref=local_selection,
+            selection_revision=selection_revision,
+            source_chain=source_ids,
+            # Selection revisions remain on one source/edit chain; changing
+            # the selection must consume the root revision budget rather than
+            # resetting it through a new chain key.
+            edit_chain=[],
+        )
+        return plan
+
     def ui_backend(self, plan: PipelinePlan, binding):
         from .registry import resolve_ui_step
 
@@ -382,10 +522,18 @@ class PipelineService:
     def submit_step(self, plan: PipelinePlan, binding, reservation: Cost) -> OperationRecord:
         from ..schemas.ui import UIStepBinding
         from .registry import validate_ui_registration
+        from .ui_children import is_child_plan, validate_child_plan
 
         binding = UIStepBinding.model_validate(binding.model_dump(mode="json"))
         plan = self.checked_plan(plan.task_id, plan.fingerprint)
+        if is_child_plan(plan):
+            validate_child_plan(plan)
+            # T020 registers and accounts for children; provider submission is
+            # intentionally owned by the later SAM/Comfy tasks.
+            raise PipelineError("capability_not_ready", "UI child providers are not configured")
         request = validate_ui_registration(plan, self.artifacts)
+        if request.output_mode != "parse":
+            raise PipelineError("capability_not_ready", "UI editing is not available in the single-image preview")
         if binding.outputs:
             raise PipelineError("invalid_step", "A submission cannot supply its own result references")
         for ref in [*binding.inputs, *([binding.parameters_ref] if binding.parameters_ref else [])]:

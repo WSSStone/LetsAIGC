@@ -2,16 +2,24 @@
 
 **Feature ID**: `013-game-ui-analysis` | **Date**: 2026-09-04 | **Spec**: [spec.md](spec.md)  
 **Working Branch**: `dev-game-ui` | **Baseline**: `7b91c34deb23064aaa6b492ce105956a59b47b71`  
-**Status**: 按用户批准的产品优先计划修订；代码与真实验收均未完成。修订后执行一次只读 Analyze，只汇报结果，不自动修订或重跑。
+**Status**: 2026-09-06增量修订：T001—T018预览已完成；T043—T050人工校正预览已实施并有三例浏览器/恢复证据，T019先行合同与T020父子预算已实施；T021—T042仍待实施（T035已做数据缺项审计）。规划修订的只读Analyze约定不变。
 
 ## Summary
 
-首个可用产品是**手动单图解析 + SerpApi/Tavily 双后端搜索及自动切换**。工程顺序先完成手动单图，再把双后端接到同一个 ui_analysis，交付明确标注的可用预览。之后交付分割/补图，再交付批次与正式质量验收。原 M-U1—M-U3、FR/PER/SC、R01—R16、U-V01—U-V14 保留，首版预览不是全量验收完成。
+首个可用产品是**手动单图解析 + SerpApi/Tavily 双后端搜索及自动切换**。工程顺序先完成手动单图，再把双后端接到同一个 ui_analysis，交付明确标注的可用预览。预览之后先交付人工校正，再交付分割/补图、批次与正式质量验收。原 M-U1—M-U3、FR/PER/SC、R01—R16、U-V01—U-V14 保留，首版预览不是全量验收完成。
 
 普通编辑流程由 Agent 提出区域、对象与预览，用户直接批准相应具体 GPU 子计划。实耗高于预留而仍在原批准限额内时，记录 reservation_adjusted 并核算后自动继续；实际违反批准预算才失败。
 
+## 2026-09-06 增量范围与决策
+
+用户授权改造当前013，保留原编号/已完成证据，不新建feature或重跑建分支/覆盖模板脚本。人工校正独立于模型修订与GPU选择，新增US7、T043—T050，顺序为T018→T043—T050→T019—T042；T035的数据准备也以T050的来源隔离规则为前置。
+
+第一版为本地单图标注页面，支持矩形、文字、分类、父子、锁定、草稿、撤销/重做、确认后局部产物更新。模型辅助重读/复核由T029接线，精细蒙版、Live2D工程、协作与云服务不在本轮。分类用基础类型＋可选标签；确认版本与GPU批准分开。
+
 ## Technical Context
 
+- 人工校正：Python 3.12专用回环HTTP服务（标准库ThreadingHTTPServer的受限handler），原生HTML/CSS/ES modules与SVG标注；静态资源随Python包发布，不依赖CDN/Node构建。鉴权、Origin/Host/CSRF、CSP及路径隔离见[人工校正合同](contracts/review.md)，不能直接暴露通用目录服务器。
+- 保存复用ArtifactStore和公共SQLite；独立review版本不扩展UIStepBinding.revision或TaskBudget.max_revisions。首版上限512元素/4096文字、1MiB写入、256动作/请求、100步未保存撤销；复用本地磁盘/RAM资源边界。
 - Python 3.12；复用 Typer、Pydantic v2、httpx、Pillow/NumPy、现有模型连接和 Temporal SDK 1.32.0。
 - CPU OCR：独立环境，PaddleOCR 3.4.0 / PaddlePaddle 3.2.2，显式静态模型及已验证加载器。分割阶段才准备独立 SAM 环境：Transformers 4.57.6、PyTorch 2.9.1 / torchvision 0.24.1、官方 safetensors。
 - 复用公共 PipelineService、ArtifactStore 和 .local/pipelines/ledger.sqlite；不新建调度器、预算库或产品控制平面。
@@ -34,6 +42,8 @@
 | 受限工作流 | 按阶段注册确定流程，动态Comfy图仍由已审查recipe编译 |
 | 测试先于实现 | 同一任务内先写相关合同/失败测试再实现；共享不变量只维护一套 |
 | 验收诚实性 | 未完成的真实验收保留，复用证据须匹配当前依赖版本和输入 |
+
+本次沿用默认会话进行只读发现和文档规划，无法由Agent切换客户端Plan Mode；用户已明确授权增量改造当前spec，故仅更新设计工件，不执行产品实现。现有setup-plan脚本会覆盖plan，因此用等价路径/模板检查保留历史；pwsh不可用。Clarify依据本会话确认的范围及明确默认决策完成，没有阻塞性未决问题。Development Harness限于文档与流程，产品不读取specs；新增预算/来源/输入安全不放宽。
 
 不存在 Product Invariant 例外。前阶段用户直接调用 Plan、未单独运行 Clarify 的记录仅作历史；本轮明确需求已通过计划问答锁定。精简的是重复验证与不必要前置，不是许可、批准、预算或安全要求。
 
@@ -97,9 +107,19 @@ C:\Programs\LetsAIGC\
 **Structure Decision**：领域模块不依赖Temporal SDK；Workflow只编排，Activity调用受限公共服务。UIProvider供给素材，vision执行固定分析，生成进入现有编译/Comfy证据链。机器schema由Pydantic导出到测试合同夹具，运行不依赖specs目录。
 
 
+## 人工校正新增目标文件
+
+- `src/letsaigc/ui_analysis/review.py`：版本化动作、领域校验及稳定ID。
+- `src/letsaigc/ui_analysis/review_projection.py`：有效布局/文字和受影响产物物化。
+- `src/letsaigc/ui_analysis/review_server.py`、`review_web/{index.html,app.js,styles.css}`：受限回环接口与页面。
+- `src/letsaigc/schemas/ui_review.py`：review v2、Patch、Binding与manifest DTO。
+- `src/letsaigc/pipelines/ledger.py`、`migrations.py`：review版本和幂等持久化；不另建数据库。
+- `configs/ui-analysis/review.yaml`：taxonomy、动作和本地资源限制版本；不改既有VLM策略。
+- `tests/contract/test_ui_review_*.py`、`tests/unit/test_ui_review_*.py`、`tests/integration/test_ui_review_*.py`：先行合同、迁移/恢复与页面证据。
+
 ## 设计工件
 
-[research.md](research.md) 保留12项决策及官方来源；[data-model.md](data-model.md) 定义分期数据与区域候选；[CLI](contracts/cli.md)、[执行](contracts/execution.md)、[供给](contracts/ui-provider.md)、[视觉](contracts/vision.md)、[搜索](contracts/image-search.md) 合同定义拟实现接口。[Quickstart](quickstart.md) 按首版预览→编辑→批次组织，不要求预览准备SAM/SDXL。
+[research.md](research.md) 保留D01—D12原决策及来源，追加D13—D15人工校正设计；[data-model.md](data-model.md) 定义分期数据与区域候选；[CLI](contracts/cli.md)、[执行](contracts/execution.md)、[供给](contracts/ui-provider.md)、[视觉](contracts/vision.md)、[搜索](contracts/image-search.md) 合同定义拟实现接口。[Quickstart](quickstart.md) 按首版预览→人工校正→编辑→批次组织，不要求预览准备SAM/SDXL。
 
 ## 按可用结果推进
 
@@ -113,9 +133,19 @@ C:\Programs\LetsAIGC\
 
 首版仍使用候选/下载/查询/切换硬上限及当前双后端额度规则。自动切换用固定额度响应验证，不故意耗尽真实账户。旧 M-U1 的24例正式验收尚未通过时，状态明确为预览。
 
+### A2. 人工校正：新增 T043—T050（依赖T018）
+
+1. 先定义校正v2、动作白名单、基线/字段来源、稳定ID和并发/幂等合同。
+2. 公共账本v3→v4加入ui_review_heads、ui_review_revisions、ui_review_requests；保存不可变refs与CAS head，历史v1解析指纹不动。
+3. 纯CPU物化生成review布局/有效文字/切片/overlay/manifest，完整验证后原子发布；失败head不变。
+4. 本地页面提供原图画布、列表和属性面板，临时会话令牌只授予当前任务校正权，界面保存/确认没有模型和批准能力。
+5. 导出固定ReviewedLayoutBinding供后续选择计划使用；复用三例现场素材完成真实浏览器校正与中断恢复验收，不新增OCR/VLM。
+
+原parse终态不变，不令Temporal长期等待人类绘图。人工草稿版本与已确认版本分离；模型建议不得自动覆盖人工字段。正式质量分别评估原自动结果和人工辅助结果。
+
 ### B. 拆解与补图：新 T019—T030
 
-按需扩展父子授权/预算，准备SAM，再接入MaskedGenerationPlan v2、原生recipe和CPU精确合成。默认由VLM在已批准分析范围及计数内提出区域；确定性校验后生成预览与子计划，执行具体指纹同时确认范围。目标含混只要求候选编号；文件选择为高级覆盖。分割与最终mask补图各自批准，单次批准不扩大根预算。
+在T050校正闭环之后，按需扩展父子授权/预算，准备SAM，再接入MaskedGenerationPlan v2、原生recipe和CPU精确合成。存在明确review绑定时复用该确认布局、不重跑OCR/VLM；无绑定的原自动流程保留。默认由VLM在已批准分析范围及计数内提出区域；确定性校验后生成预览与子计划，执行具体指纹同时确认范围。目标含混只要求候选编号；文件选择为高级覆盖。分割与最终mask补图各自批准，单次批准不扩大根预算。
 
 保留两种背景目标、可选字形、最多两次补图修订及依赖闭包。原始/估计/生成资产分开。真实分割与补图先证明可用并记录质量值，正式阈值冻结在最终质量阶段。
 
@@ -128,8 +158,8 @@ C:\Programs\LetsAIGC\
 ## 公共接口与数据演进
 
 - 保留 PipelinePlan、GenerationPlan v1 序列化和既有 Agent/专家语义。新增 resolve_ui_step/submit_step 路径，UI计划仅允许请求/策略/评估素材引用；旧 submit(plan, revision) 不改名或改变合同。
-- 新 ui_analysis 首版只启用manual/search单图parse；首版计划阶段拒绝未就绪的多图和编辑请求，保留最终1—10图规格，不静默截断。
-- 数据库分三次小迁移：v1→v2仅 ui_step_bindings；v2→v3增加五张quota表；v3→v4增加 ui_budget_groups、ui_child_bindings、ui_operation_charges。费用始终只在原operations入账。每次只测自身迁移和旧兼容样本；旧二进制不得打开不支持的版本。
+- 新 ui_analysis 首版只启用manual/search单图parse；首版计划阶段拒绝未就绪的多图和编辑请求；新增ui review不属于GPU编辑模式且只消费既有产物，保留最终1—10图规格，不静默截断。
+- 数据库分四次小迁移：v1→v2仅 ui_step_bindings；v2→v3增加五张quota表；T044的v3→v4增加ui_review_heads/ui_review_revisions/ui_review_requests；T020的v4→v5增加 ui_budget_groups、ui_child_bindings、ui_operation_charges。费用始终只在原operations入账。每次只测自身迁移和旧兼容样本；旧二进制不得打开不支持的版本。
 - 单图阶段根身份就是task_id，额度scope协调多个独立单图任务，不需要父子预算表。GPU子流程阶段才建立根组及选择版本绑定。
 - ui select 新增 --candidate ID，与 --selection FILE 二选一。默认方案直接形成待批准计划；候选选择只登记范围，不调用模型或GPU。
 - UI usage_verdict使用 within_budget / reservation_adjusted / budget_exceeded / awaiting_reconciliation。旧ledger.result.budget_exceeded比较实际与预留，保持历史含义；UI依据实际和批准限额独立判定。
@@ -142,6 +172,8 @@ C:\Programs\LetsAIGC\
 U-V01—07主要验证领域与产物正确性，U-V08—10由共享合同加边界例覆盖，U-V11—13验证搜索和批次特例，U-V14汇总真实链路。具体映射在Tasks。已有证据仅在输入、模型、代码/依赖及合同版本仍适用时复用；变更后只重验受影响断言。
 
 本地函数/文档任务记录代码、命令和结果；只有外部执行记录才要求批准、受理次数、费用和资源证据。真实验证显式开启，默认不下载、不计费。用户要求修订后运行一次只读speckit-analyze，报告发现及限制后停止，不自动修订复核。
+
+详细校正API、身份、确认事务、兼容与安全验收见[review合同](contracts/review.md)。新增技术均为本地CPU路径，不准备模型、不接受新模型许可、不安装依赖；全部环境命令统一`conda run --no-capture-output -n ...`。
 
 ## 前阶段历史交付记录
 

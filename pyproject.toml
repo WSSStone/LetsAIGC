@@ -33,6 +33,9 @@ letsaigc = "letsaigc.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/letsaigc"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/letsaigc/ui_analysis/review_web" = "letsaigc/ui_analysis/review_web"
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 addopts = "-ra --strict-markers"

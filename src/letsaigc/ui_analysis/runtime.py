@@ -6,7 +6,7 @@ import psutil
 import yaml
 
 from ..agent.responses import DEFAULT_VLM_MODEL, endpoint_fingerprint, load_llm_api_key
-from ..agent.ui_analyzer import UIAnalysisBackend, UIVLMPolicy
+from ..agent.ui_analyzer import EVIDENCE_POLICY, UIAnalysisBackend, UIVLMPolicy
 from ..config import get_setting
 from ..generation.pricing import calculate_luna_cost, ensure_current, load_pricing
 from ..paths import find_repo_root
@@ -14,14 +14,12 @@ from ..pipelines.contracts import Capability
 from ..pipelines.errors import PipelineError
 from ..schemas.pipeline import canonical_json, digest
 from ..vision.client import OCROperationBackend, VisionClient
+from ..vision.settings import load_ocr_settings
 from .execution import UIExecution
 
 
 def vision_settings():
-    root = find_repo_root()
-    config = yaml.safe_load((root / "configs/runtime/vision.yaml").read_text(encoding="utf-8"))["ocr"]
-    lock = yaml.safe_load((root / config["lock"]).read_text(encoding="utf-8"))
-    return config, lock
+    return load_ocr_settings()
 
 
 def freeze_models(store, task_id):
@@ -32,6 +30,7 @@ def freeze_models(store, task_id):
         model=get_setting("LLM_VLM_MODEL", DEFAULT_VLM_MODEL),
         endpoint_fingerprint=endpoint_fingerprint(),
         pricing_ref=price_ref,
+        evidence_policy=EVIDENCE_POLICY,
     )
     return {
         "ocr": store.put(task_id, "plan", canonical_json(lock).encode(), role="model_lock"),
@@ -125,6 +124,7 @@ def configure(service):
 
 
 def diagnose(*, include_search=True):
+    from ..doctor import review_readiness
     from ..execution.temporal.config import diagnose as temporal_diagnose
     from ..vision.ocr import validate_model_files
 
@@ -229,6 +229,7 @@ def diagnose(*, include_search=True):
             }
     return {
         "manual": {"ready": True},
+        "review": review_readiness(),
         "ocr": {
             "ready": ocr_ready,
             "protocol_version": 1,

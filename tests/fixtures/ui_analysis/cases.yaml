@@ -1,0 +1,138 @@
+schema_version: 1
+dataset_status: incomplete_observed_subset
+acceptance_status: readiness_audit_only
+target:
+  total_cases: 24
+  development_cases: 16
+  evaluation_cases: 8
+  known_background_cases: 8
+  known_background_development_cases: 4
+  known_background_evaluation_cases: 4
+observed:
+  total_cases: 6
+  development_cases: 6
+  evaluation_cases: 0
+  known_background_cases: 0
+  known_background_development_cases: 0
+  known_background_evaluation_cases: 0
+  commercial_preview_cases: 3
+  independent_ground_truth_cases: 0
+  missing_case_count: 18
+  missing_evaluation_case_count: 8
+  missing_known_background_case_count: 8
+  missing_independent_ground_truth_case_count: 24
+cases:
+  - case_id: hud-en-landscape
+    group_id: synthetic-1
+    path: tests/fixtures/ui_analysis/hud-en-landscape.png
+    sha256: fe7cfc531a883900acdca2369e6e785cea44517d0c0a7a49e85e6ee6f0ba70de
+    size: [1280, 720]
+    language: en
+    orientation: landscape
+    split: development
+    dataset_role: synthetic_preview_fixture
+    source_kind: original_synthetic_ui
+    source_status: checked_in_fixture
+    license_id: project-owned-test-fixture
+    distribution: git_fixture
+    known_background: false
+    background_truth_status: not_applicable_synthetic
+    evaluation_eligible: false
+    automatic_output_available: false
+    human_assisted_output_available: false
+    independent_ground_truth_available: false
+  - case_id: hud-zh-dense
+    group_id: synthetic-2
+    path: tests/fixtures/ui_analysis/hud-zh-dense.png
+    sha256: cbb015a212af8c22811f3a2d08def2174f37e6045345977c6bd90c0f5205bfa4
+    size: [1440, 900]
+    language: zh
+    orientation: landscape
+    split: development
+    dataset_role: synthetic_preview_fixture
+    source_kind: original_synthetic_ui
+    source_status: checked_in_fixture
+    license_id: project-owned-test-fixture
+    distribution: git_fixture
+    known_background: false
+    background_truth_status: not_applicable_synthetic
+    evaluation_eligible: false
+    automatic_output_available: false
+    human_assisted_output_available: false
+    independent_ground_truth_available: false
+  - case_id: hud-portrait
+    group_id: synthetic-3
+    path: tests/fixtures/ui_analysis/hud-portrait.png
+    sha256: 5d8b023159d5854f9229d1e58973754befb579008f448b63cdf529db2350de0b
+    size: [720, 1280]
+    language: zh
+    orientation: portrait
+    split: development
+    dataset_role: synthetic_preview_fixture
+    source_kind: original_synthetic_ui
+    source_status: checked_in_fixture
+    license_id: project-owned-test-fixture
+    distribution: git_fixture
+    known_background: false
+    background_truth_status: not_applicable_synthetic
+    evaluation_eligible: false
+    automatic_output_available: false
+    human_assisted_output_available: false
+    independent_ground_truth_available: false
+  - case_id: hades2-en-landscape
+    group_id: commercial-hades2
+    path: .local/ui-input/t010-commercial/candidates/hades2-en-landscape.jpg
+    sha256: 3ea821af02098390e6330e9d6fe674f27d96d10dd09e96a6019795cdb9c4a9fd
+    size: [1200, 675]
+    language: en
+    orientation: landscape
+    split: development
+    dataset_role: commercial_preview
+    source_kind: commercial_game_screenshot
+    source_status: local_only_observed
+    license_id: unverified_reference_only
+    distribution: local_only
+    known_background: null
+    background_truth_status: unavailable
+    evaluation_eligible: false
+    automatic_output_available: true
+    human_assisted_output_available: true
+    independent_ground_truth_available: false
+  - case_id: starrail-zh-dense
+    group_id: commercial-starrail
+    path: .local/ui-input/t010-commercial/candidates/starrail-zh-dense.jpg
+    sha256: 4a993a506d5850a7f77a364866356f5a14c59797f2c4d29720f9059240a3d278
+    size: [1920, 1334]
+    language: zh
+    orientation: landscape
+    split: development
+    dataset_role: commercial_preview
+    source_kind: commercial_game_screenshot
+    source_status: local_only_observed
+    license_id: unverified_reference_only
+    distribution: local_only
+    known_background: null
+    background_truth_status: unavailable
+    evaluation_eligible: false
+    automatic_output_available: true
+    human_assisted_output_available: true
+    independent_ground_truth_available: false
+  - case_id: clashroyale-en-portrait
+    group_id: commercial-clashroyale
+    path: .local/ui-input/t010-commercial/candidates/clashroyale-en-portrait.png
+    sha256: 46b34c4bad8274e53cc185dddfd9d39dcd6be10fdd84ee7aa8dbe649e46801a9
+    size: [562, 1000]
+    language: en
+    orientation: portrait
+    split: development
+    dataset_role: commercial_preview
+    source_kind: commercial_game_screenshot
+    source_status: local_only_observed
+    license_id: unverified_reference_only
+    distribution: local_only
+    known_background: null
+    background_truth_status: unavailable
+    evaluation_eligible: false
+    automatic_output_available: true
+    human_assisted_output_available: true
+    independent_ground_truth_available: false

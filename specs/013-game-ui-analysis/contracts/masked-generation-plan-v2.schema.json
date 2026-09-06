@@ -1,0 +1,617 @@
+{
+  "$defs": {
+    "ExecutionEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "enum": [
+            "comfy",
+            "openai"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "recipe": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recipe"
+        },
+        "output_count": {
+          "const": 1,
+          "default": 1,
+          "title": "Output Count",
+          "type": "integer"
+        },
+        "max_width": {
+          "exclusiveMinimum": 0,
+          "title": "Max Width",
+          "type": "integer"
+        },
+        "max_height": {
+          "exclusiveMinimum": 0,
+          "title": "Max Height",
+          "type": "integer"
+        },
+        "quality": {
+          "anyOf": [
+            {
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quality"
+        },
+        "background": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "opaque",
+                "transparent"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Background"
+        },
+        "max_steps": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Steps"
+        },
+        "allowed_tools": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1,
+          "minItems": 1,
+          "title": "Allowed Tools",
+          "type": "array"
+        },
+        "mutable_parameters": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Mutable Parameters",
+          "type": "array"
+        },
+        "budget": {
+          "$ref": "#/$defs/TaskBudget"
+        }
+      },
+      "required": [
+        "backend",
+        "model",
+        "max_width",
+        "max_height",
+        "allowed_tools",
+        "budget"
+      ],
+      "title": "ExecutionEnvelope",
+      "type": "object"
+    },
+    "GenerationIntent": {
+      "enum": [
+        "text_to_image",
+        "image_to_image",
+        "text_to_video",
+        "image_to_video",
+        "sprite_sequence",
+        "short_drama"
+      ],
+      "title": "GenerationIntent",
+      "type": "string"
+    },
+    "ResolvedAsset": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "source_type": {
+          "enum": [
+            "local",
+            "https"
+          ],
+          "title": "Source Type",
+          "type": "string"
+        },
+        "safe_source": {
+          "title": "Safe Source",
+          "type": "string"
+        },
+        "mime_type": {
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "title": "Height",
+          "type": "integer"
+        },
+        "size_bytes": {
+          "exclusiveMinimum": 0,
+          "maximum": 26214400,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "local_path": {
+          "title": "Local Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "derived_path": {
+          "title": "Derived Path",
+          "type": "string"
+        },
+        "derived_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Derived Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source_type",
+        "safe_source",
+        "mime_type",
+        "width",
+        "height",
+        "size_bytes",
+        "local_path",
+        "sha256",
+        "derived_path",
+        "derived_sha256"
+      ],
+      "title": "ResolvedAsset",
+      "type": "object"
+    },
+    "TaskBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "max_total_cost_usd": {
+          "minimum": 0,
+          "title": "Max Total Cost Usd",
+          "type": "number"
+        },
+        "max_iteration_cost_usd": {
+          "minimum": 0,
+          "title": "Max Iteration Cost Usd",
+          "type": "number"
+        },
+        "max_total_gpu_minutes": {
+          "minimum": 0,
+          "title": "Max Total Gpu Minutes",
+          "type": "number"
+        },
+        "max_iteration_gpu_minutes": {
+          "minimum": 0,
+          "title": "Max Iteration Gpu Minutes",
+          "type": "number"
+        },
+        "max_revisions": {
+          "default": 10,
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Max Revisions",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_total_cost_usd",
+        "max_iteration_cost_usd",
+        "max_total_gpu_minutes",
+        "max_iteration_gpu_minutes"
+      ],
+      "title": "TaskBudget",
+      "type": "object"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "task_id": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "artifact_id": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "key": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_./-]+$",
+          "title": "Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "media_type": {
+          "title": "Media Type",
+          "type": "string"
+        },
+        "role": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "operation_id": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$",
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "artifact_id",
+        "key",
+        "sha256",
+        "size_bytes",
+        "media_type",
+        "role",
+        "operation_id"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 2,
+      "type": "integer"
+    },
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "intent": {
+      "const": "image_to_image"
+    },
+    "user_intent": {
+      "minLength": 1,
+      "title": "User Intent",
+      "type": "string"
+    },
+    "backend": {
+      "const": "comfy"
+    },
+    "model": {
+      "title": "Model",
+      "type": "string"
+    },
+    "recipe": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_model": {
+      "default": "gpt-5.6-luna",
+      "title": "Agent Model",
+      "type": "string"
+    },
+    "agent_vlm_model": {
+      "default": "gpt-5.6-luna",
+      "title": "Agent Vlm Model",
+      "type": "string"
+    },
+    "agent_endpoint_fingerprint": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent Endpoint Fingerprint"
+    },
+    "dependency_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Dependency Hashes",
+      "type": "object"
+    },
+    "parameters": {
+      "additionalProperties": true,
+      "title": "Parameters",
+      "type": "object"
+    },
+    "input_assets": {
+      "items": {
+        "$ref": "#/$defs/ResolvedAsset"
+      },
+      "title": "Input Assets",
+      "type": "array"
+    },
+    "acceptance_criteria": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Acceptance Criteria",
+      "type": "array"
+    },
+    "estimated_iteration_cost_usd": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Estimated Iteration Cost Usd",
+      "type": "number"
+    },
+    "estimated_iteration_gpu_minutes": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Estimated Iteration Gpu Minutes",
+      "type": "number"
+    },
+    "envelope": {
+      "$ref": "#/$defs/ExecutionEnvelope"
+    },
+    "image_mask": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image_ref": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "properties": {
+                "role": {
+                  "const": "image"
+                }
+              }
+            }
+          ]
+        },
+        "mask_ref": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "properties": {
+                "role": {
+                  "const": "edit_mask"
+                }
+              }
+            }
+          ]
+        },
+        "canonical_ref": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "properties": {
+                "role": {
+                  "const": "canonical"
+                }
+              }
+            }
+          ]
+        },
+        "canonical_edit_mask_ref": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "properties": {
+                "role": {
+                  "const": "edit_mask"
+                }
+              }
+            }
+          ]
+        },
+        "selection_ref": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "properties": {
+                "role": {
+                  "const": "selection"
+                }
+              }
+            }
+          ]
+        },
+        "view_transform_ref": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "properties": {
+                "role": {
+                  "const": "view_transform"
+                }
+              }
+            }
+          ]
+        },
+        "selection_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "selection_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8192
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8192
+        },
+        "canonical_width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8192
+        },
+        "canonical_height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8192
+        },
+        "crop": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "resize": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "pad": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "mask_role": {
+          "const": "edit_mask"
+        },
+        "mask_policy_version": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "recipe_supports_mask": {
+          "const": true
+        }
+      },
+      "required": [
+        "image_ref",
+        "mask_ref",
+        "canonical_ref",
+        "canonical_edit_mask_ref",
+        "selection_ref",
+        "view_transform_ref",
+        "selection_revision",
+        "selection_hash",
+        "width",
+        "height",
+        "canonical_width",
+        "canonical_height",
+        "crop",
+        "resize",
+        "pad",
+        "mask_role",
+        "mask_policy_version",
+        "recipe_supports_mask"
+      ]
+    }
+  },
+  "required": [
+    "task_id",
+    "session_id",
+    "intent",
+    "user_intent",
+    "backend",
+    "model",
+    "parameters",
+    "acceptance_criteria",
+    "envelope",
+    "schema_version",
+    "recipe",
+    "image_mask"
+  ],
+  "title": "MaskedGenerationPlan v2",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "T019 frozen content contract. Cross-field, artifact and pixel checks belong to T020/T025/T026. Never load specs from product runtime."
+}

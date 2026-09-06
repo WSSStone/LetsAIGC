@@ -1,0 +1,56 @@
+schema_version: 1
+id: sdxl-inpaint
+version: 1.0.0
+description: Native SDXL inpaint workflow with a frozen red-channel edit mask
+ui_workflow: workflows/ui/sdxl-inpaint.json
+api_workflow: workflows/api/sdxl-inpaint.json
+input_schema:
+  type: object
+  additionalProperties: false
+  required: [prompt, negative_prompt, seed, steps, cfg, denoise]
+  properties:
+    prompt: {type: string}
+    negative_prompt: {type: string}
+    seed: {type: integer, minimum: 0}
+    steps: {type: integer, minimum: 1, maximum: 60}
+    cfg: {type: number, minimum: 1, maximum: 20}
+    denoise: {type: number, minimum: 0.05, maximum: 1.0}
+    mask:
+      type: object
+      additionalProperties: false
+      required: [channel, polarity, grow_mask_by]
+      properties:
+        channel: {const: red}
+        polarity: {const: white_is_edit}
+        grow_mask_by: {const: 0}
+output_schema:
+  type: object
+  required: [images]
+  properties:
+    images: {type: array}
+bindings:
+  prompt: "6.inputs.text"
+  negative_prompt: "7.inputs.text"
+  seed: "3.inputs.seed"
+  steps: "3.inputs.steps"
+  cfg: "3.inputs.cfg"
+  denoise: "3.inputs.denoise"
+defaults:
+  prompt: restore the selected game background
+  negative_prompt: text, watermark, blurry
+  seed: 20260831
+  steps: 25
+  cfg: 6.5
+  denoise: 0.6
+  mask:
+    channel: red
+    polarity: white_is_edit
+    grow_mask_by: 0
+models: [sdxl-base-1.0]
+adapters: []
+nodes: [CheckpointLoaderSimple, LoadImage, ImageToMask, VAEEncodeForInpaint, CLIPTextEncode, KSampler, VAEDecode, SaveImage]
+resource_budget: {vram_gib: 10, ram_gib: 24, free_disk_gib: 8, timeout_seconds: 600}
+export_lanes: [production]
+media_kind: image
+outputs: [{node_id: "9", history_field: images, role: primary_image, media_kind: image, allowed_extensions: [".png"]}]
+temporal_budget: {width: 1024, height: 1024, temporary_disk_gib: 2}

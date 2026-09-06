@@ -14,7 +14,7 @@
 
 ## D02：分析授权与动态确定的 GPU/补图批准分开
 
-**Decision**：UI `plan` 仅进行确定性校验和输入登记，预规划模型成本为零；查询改写、候选筛选及 VLM 都在分析授权之后执行。分析产生 canonical、框/点或 mask 后，创建独立不可变分割/补图子计划，请用户批准其具体指纹。默认由 Agent 在真实布局上提出推荐区域、保留/移除对象与预览，可信层校验并冻结后直接形成待批准子计划；execute --approve 同时确认范围并批准该次 GPU 操作。含混时提供候选编号，选择文件保留为高级覆盖；区域内部指纹约束与分割/最终蒙版分别批准保持不变。同一图像编辑链最多两次修订，还受根 TaskBudget 的共同修订上限约束；新 mask/子计划不清零。
+**Decision**：UI `plan` 仅进行确定性校验和输入登记，预规划模型成本为零；查询改写、候选筛选及 VLM 都在分析授权之后执行。分析产生 canonical、框/点或 mask 后，创建独立不可变分割/补图子计划，请用户批准其具体指纹。默认由 Agent 在真实布局上提出推荐区域、保留/移除对象与预览，可信层校验并冻结后直接形成待批准子计划；execute --approve 同时确认范围并批准该次 GPU 操作。含混时提供候选编号，选择文件保留为高级覆盖；区域内部指纹约束与分割/最终蒙版分别批准保持不变。同一图像编辑链最多两次生成修订（不含人工校正保存），还受根 TaskBudget 的共同修订上限约束；新 mask/子计划不清零。
 
 **Rationale**：未知的分割提示、最终蒙版不能被最初的分析批准覆盖。父任务的分析授权可以通过已登记父子绑定约束分析子任务，但不制造新的人工批准回执。GPU 子任务必须有自己的精确回执。旧 `agent plan` 的 Responses 预留计费规则不变，为 $0.03 + 每张输入 $0.01。实耗超过预留但仍在原批准逐次及总限额内时，UI记录非失败 reservation_adjusted，据实结算并核算后续预算后自动继续；后续无法预留时停止新消费、保留成果，扩大预算须新计划和批准。实际违反批准限额才 budget_exceeded 失败。旧 ledger.result.budget_exceeded 当前表示“超过预留”，保持兼容，UI不能直接据此判失败；未知费用不按零结算。
 
@@ -22,7 +22,7 @@
 
 ## D03：历史指纹和公共数据库升级
 
-**Decision**：公共 `PipelinePlan` v1 保持序列化不变；UI 的严格参数载荷仅放请求、策略和评估配置的 `ArtifactRef`；用户后续选择保存为步骤素材，具体子请求绑定 selection_ref，不改根计划或增加顶层参数键。带蒙版的生成采用显式 `MaskedGenerationPlan` v2，旧 `GenerationPlan` v1 不增加默认输出字段。数据随功能分期迁移：v1→v2仅 ui_step_bindings，v2→v3增加 quota_scopes/snapshots/reservations/routes/probes 五表，v3→v4增加 ui_budget_groups/child_bindings/operation_charges 三表。后两组全名分别见数据模型；费用仍只在既有operations入账。每次迁移随对应变更验证，保留旧行和操作键，首版不等待父子预算。
+**Decision**：公共 `PipelinePlan` v1 保持序列化不变；UI 的严格参数载荷仅放请求、策略和评估配置的 `ArtifactRef`；用户后续选择保存为步骤素材，具体子请求绑定 selection_ref，不改根计划或增加顶层参数键。带蒙版的生成采用显式 `MaskedGenerationPlan` v2，旧 `GenerationPlan` v1 不增加默认输出字段。数据随功能分期迁移：v1→v2仅 ui_step_bindings，v2→v3增加 quota_scopes/snapshots/reservations/routes/probes 五表，v4→v5增加 ui_budget_groups/child_bindings/operation_charges 三表（2026-09-06先由T044的v3→v4加入review三表）。后两组全名分别见数据模型；费用仍只在既有operations入账。每次迁移随对应变更验证，保留旧行和操作键，首版不等待父子预算。
 
 **Rationale**：[schemas/pipeline.py](/C:/Programs/LetsAIGC/src/letsaigc/schemas/pipeline.py:141) 对完整对象计算指纹；旧模型默认多序列化一个 null 都可能改变批准。当前账本只接受版本 0/1，升级必须明确停写、备份和兼容 Worker，不能让原版 Worker 继续打开已迁移数据库。
 
@@ -105,3 +105,25 @@
 **License decision**：PaddleOCR 与 SAM2 代码/官方模型逐项记录 Apache-2.0 依据；推理包本身的许可仍需归档。SDXL 沿用现有 catalog 的 CreativeML-OpenRAIL++-M、production 通道及权重哈希。ComfyUI 软件 GPL-3.0 与模型许可分别记录。远程分析和搜索条款使用版本化条款 ID，未核实不得将默认用户条件提升为 production；所有派生物的生产导出仍须人工审批。[SAM2 官方仓库](https://github.com/facebookresearch/sam2)、[ComfyUI 许可](https://raw.githubusercontent.com/Comfy-Org/ComfyUI/v0.34.2/LICENSE)。
 
 **Alternatives considered**：不把包安装、文档核对、模拟合同或历史 Temporal 测试当 UI 真实验收。没有设计层面的待澄清项；模型哈希、真实资源峰值、提供方账户样本及质量数值属于各自阶段的验证门槛，不是可跳过的假设。纯本地任务只记录代码、命令与结果；发生外部调用才要求批准、受理次数、费用和运行证据，不给每项本地工作附加同一外部故障矩阵。
+
+## D13：人工校正是独立于模型修订的版本层（2026-09-06）
+
+**Decision**：原模型结果只读，ReviewLayout v2以基础类型＋可选标签表达人工布局；字段来源分别记录human/ocr/model，显式null/unknown不被猜测补齐。草稿保存与确认分开，确认后的manifest/hash成为下游绑定；锁定字段不接受模型自动覆盖。原自动评估、人工辅助结果和冻结真值分开。
+
+**Rationale**：本仓库两次同图成功解析分别得到25/24元素，像素一致只证明切片正确，不能证明语义完整。UISelection原来解决GPU目标范围，RevisionRequest仅有四种模型/分割动作；它们不能承担人工自由编辑、草稿和长期版本历史。依据用户本轮要求及已保存验收证据制定本地设计，不新增模型能力或推断Live2D工程。
+
+**Alternatives considered**：不以每次改框重新调用VLM；不把人工补字写成OCR观测；不将确认当GPU批准；不等整个013完成才接入基础版本层。
+
+## D14：校正存储、前端与旧版本兼容
+
+**Decision**：复用ArtifactStore和公共SQLite，T044先v3→v4加入ui_review_heads/ui_review_revisions/ui_review_requests，T020父子迁移顺延v4→v5。保存CAS＋request_id幂等，物化成功后才发布head；原PipelinePlan/旧VLMSchema/修订次数不变。原生HTML/CSS、ES modules及SVG覆盖层由Python 3.12受限回环服务提供；无CDN、云端、Node构建或新模型依赖。
+
+**Rationale**：仓库当前只有Python运行时，没有既有前端工程；首版单图矩形编辑采用浏览器原生能力，避免为这次校正引入完整应用平台。缩放逆变换、草稿/确认、安全会话和版本冲突形成可测试边界；服务仅操作已授权task产物。完整会话/API约束见[review合同](contracts/review.md)。
+
+**Alternatives considered**：不另建SQLite库/调度器，不无限延长Temporal Activity等待操作，不把review历史塞入只允许两次生成修订的字段。Vue等框架可在后续界面复杂度确有需要时评估，本阶段选择已明确，不要求实现者重新选型。
+
+## D15：增量任务与现场验证
+
+**Decision**：保留T001—T042编号，新T043—T050在T018后执行，T019及T035依赖T050；先合同/失败测试，后实现。T049复用已取得三张商业截图和解析产物完成真实浏览器验收，新增搜索/OCR/VLM/GPU为0。局部模型建议与真正GPU子绑定留T029/T030验证，不能提前勾选。
+
+**Compatibility**：当前运行库仍v3，规划不迁移、不重启、不重放成功或unknown任务。本次只修改设计文档，环境命令使用conda run --no-capture-output -n letsaigc-core。用户授权增量改造覆盖重新建feature/重置plan的模板默认流程；当前无pwsh，以只读检查过的脚本做等价路径验证，最终只读Analyze一次。没有需要外部调用才能确定的设计选项。

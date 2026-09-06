@@ -7,7 +7,7 @@ from pydantic import TypeAdapter
 
 from ..pipelines.contracts import Capability, Submission
 from ..pipelines.errors import PipelineError
-from ..schemas.pipeline import Cost, Identifier
+from ..schemas.pipeline import Cost, Identifier, digest
 from ..schemas.ui import UIObservation, UIStepBinding
 from .base import OCRJob, issue_permit
 
@@ -59,6 +59,18 @@ class VisionClient:
         identity = TypeAdapter(Identifier).validate_python(operation_id)
         return self.request("GET", "/v1/operations/" + identity, task_id=task_id)
 
+    def job(self, request_id, *, task_id):
+        identity = TypeAdapter(Identifier).validate_python(request_id)
+        return self.request("GET", "/v1/jobs/" + identity, task_id=task_id)
+
+    def output(self, request_id, output_id, *, task_id):
+        identity = TypeAdapter(Identifier).validate_python(request_id)
+        role = TypeAdapter(Identifier).validate_python(output_id)
+        return self.request("GET", f"/v1/jobs/{identity}/outputs/{role}", task_id=task_id, output=True)
+
+    def release_model(self):
+        return self.request("POST", "/v1/models/release")
+
     def health(self):
         return self.request("GET", "/v1/health")
 
@@ -69,6 +81,22 @@ class OCROperationBackend:
     def __init__(self, ledger, artifacts, client: VisionClient, *, signing_key: str, model_digest: str):
         self.ledger, self.artifacts, self.client = ledger, artifacts, client
         self.signing_key, self.model_digest = signing_key, model_digest
+
+    def _job(self, operation_id):
+        operation = self.ledger.get(operation_id)
+        binding = self.ledger.ui_binding(operation_id)
+        refs = [ref for ref in binding.inputs if ref.role == "view_manifest"]
+        if len(refs) != 1:
+            raise PipelineError("invalid_input")
+        params = json.loads(self.artifacts.read(binding.parameters_ref)) if binding.parameters_ref else {}
+        return OCRJob(
+            task_id=operation.task_id,
+            operation_id=operation_id,
+            view_ref=refs[0],
+            model_digest=self.model_digest,
+            language=params.get("language", "auto"),
+            text_id=params.get("text_id"),
+        )
 
     def submit(self, operation_id, arguments):
         binding = UIStepBinding.model_validate(arguments["binding"])
@@ -95,7 +123,17 @@ class OCROperationBackend:
         receipt = self.client.operation(operation_id, task_id=operation.task_id)
         if receipt is None:
             return None
-        return Submission(request_id=receipt["request_id"], metadata={"task_id": operation.task_id})
+        if not isinstance(receipt, dict):
+            raise PipelineError("operation_scope")
+        expected = digest(self._job(operation_id))
+        if (
+            receipt.get("operation_id") != operation_id
+            or receipt.get("task_id") != operation.task_id
+            or receipt.get("payload_hash") != expected
+        ):
+            raise PipelineError("operation_scope")
+        request_id = TypeAdapter(Identifier).validate_python(receipt.get("request_id", ""))
+        return Submission(request_id=request_id, metadata={"task_id": operation.task_id})
 
     def inspect(self, submission):
         request_id = TypeAdapter(Identifier).validate_python(submission.request_id)

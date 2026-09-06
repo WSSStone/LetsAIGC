@@ -1,0 +1,342 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+          },
+          "original_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "layout_ref": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/ArtifactRef"
+              },
+              {
+                "properties": {
+                  "role": {
+                    "enum": [
+                      "layout",
+                      "review_layout"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "target_regions": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "bbox"
+                    },
+                    "xyxy": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "minItems": 4,
+                      "maxItems": 4
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "xyxy"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "element"
+                    },
+                    "element_id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "element_id"
+                  ]
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 64,
+            "uniqueItems": true
+          },
+          "keep_elements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+            },
+            "minItems": 0,
+            "maxItems": 64,
+            "uniqueItems": true
+          },
+          "remove_elements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+            },
+            "minItems": 0,
+            "maxItems": 64,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "source_id",
+          "original_sha256",
+          "target_regions"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "target_regions": {
+                  "contains": {
+                    "properties": {
+                      "kind": {
+                        "const": "element"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  }
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "layout_ref"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "keep_elements": {
+                  "minItems": 1
+                }
+              },
+              "required": [
+                "keep_elements"
+              ]
+            },
+            "then": {
+              "required": [
+                "layout_ref"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "remove_elements": {
+                  "minItems": 1
+                }
+              },
+              "required": [
+                "remove_elements"
+              ]
+            },
+            "then": {
+              "required": [
+                "layout_ref"
+              ]
+            }
+          }
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 10,
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "sources"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UISelection v1",
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "task_id": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "artifact_id": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "key": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_./-]+$",
+          "title": "Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "media_type": {
+          "title": "Media Type",
+          "type": "string"
+        },
+        "role": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "operation_id": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$",
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "artifact_id",
+        "key",
+        "sha256",
+        "size_bytes",
+        "media_type",
+        "role",
+        "operation_id"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "UISelectionCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "selection_ref": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "properties": {
+                "role": {
+                  "const": "selection"
+                }
+              }
+            }
+          ]
+        },
+        "preview_ref": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "properties": {
+                "role": {
+                  "const": "selection_preview"
+                }
+              }
+            }
+          ]
+        },
+        "evidence_ref": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "properties": {
+                "role": {
+                  "const": "selection_evidence"
+                }
+              }
+            }
+          ]
+        },
+        "origin": {
+          "enum": [
+            "agent_proposed",
+            "user_override"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "proposed",
+            "selected",
+            "superseded",
+            "invalid"
+          ]
+        }
+      },
+      "required": [
+        "candidate_id",
+        "task_id",
+        "selection_ref",
+        "preview_ref",
+        "evidence_ref",
+        "origin",
+        "revision",
+        "state"
+      ]
+    }
+  },
+  "$comment": "T019 structure contract; geometry, unique source IDs, scope and hashes require trusted runtime validation (T021). Content only; not workflow transport."
+}

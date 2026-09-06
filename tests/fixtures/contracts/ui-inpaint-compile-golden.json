@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "compiler_inputs": {
+    "task_id": "golden",
+    "session_id": "golden",
+    "user_intent": "golden",
+    "acceptance_criteria": ["golden"],
+    "backend": "comfy",
+    "model": "sdxl-base-1.0",
+    "max_width": 1536,
+    "max_height": 1536,
+    "max_steps": 60,
+    "allowed_tools": ["comfy.generate"],
+    "mutable_parameters": ["prompt", "negative_prompt", "seed", "steps", "cfg", "denoise"],
+    "budget": {
+      "max_total_cost_usd": 0.1,
+      "max_iteration_cost_usd": 0.05,
+      "max_total_gpu_minutes": 60,
+      "max_iteration_gpu_minutes": 15,
+      "max_revisions": 2
+    }
+  },
+  "plans": [
+    {
+      "intent": "text_to_image",
+      "recipe": "sdxl-t2i",
+      "parameters": {
+        "prompt": "golden",
+        "negative_prompt": "",
+        "seed": 7,
+        "steps": 20,
+        "cfg": 6,
+        "width": 1024,
+        "height": 1024
+      },
+      "graph_sha256": "eb95aa9f345d18090d101fa0d3d7db89cb65b5ce88642f3ca358cff916066b13",
+      "contract_sha256": "5addad8ef9bc209bd18f6351cf14144c0d26e84262428e7b99059155af925209"
+    },
+    {
+      "intent": "image_to_image",
+      "recipe": "sdxl-i2i",
+      "parameters": {
+        "prompt": "golden",
+        "negative_prompt": "",
+        "seed": 7,
+        "steps": 20,
+        "cfg": 6,
+        "denoise": 0.6
+      },
+      "graph_sha256": "3f78c146e7e5cdbe288be6db57040e08882a628c19f1f2781a897b942b25ea56",
+      "contract_sha256": "65917a0020a8f283720adc213a69054212d2720e9594c7c51e5ff8fd5dc03f73"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UI 校正 · LetsAIGC</title><link rel="stylesheet" href="/styles.css"><script type="module" src="/app.js"></script></head>
+<body>
+<header><div><span class="eyebrow">LETSAIGC / REVIEW</span><h1>让识别更准确</h1></div>
+<div class="version"><span id="task"></span><strong id="version">正在载入</strong></div>
+<div class="actions"><button id="save">保存草稿</button><button id="confirm" class="primary">确认版本</button></div></header>
+<div id="notice" role="status" aria-live="polite">本地人工校正 · 不调用模型</div>
+<main>
+<aside class="list-panel"><h2>元素 <span id="count"></span></h2><p class="hint">文字 T · 图片 I · 容器 C · 其他 O</p>
+<div id="elements" role="list" aria-label="元素列表"></div></aside>
+<section class="workspace" aria-label="原图校正画布">
+<nav aria-label="画布工具"><button id="select" aria-pressed="true">选择 / 移动</button><button id="draw">＋ 画框</button>
+<button id="pan">平移</button><select id="new-type" aria-label="新增框类型"><option value="image">图片框</option><option value="text">文字框</option><option value="container">容器框</option><option value="other">其他框</option></select>
+<button id="undo" title="Ctrl / Cmd + Z">撤销</button><button id="redo">重做</button><button id="zoom-out" aria-label="缩小">−</button><output id="zoom">适合窗口</output><button id="zoom-in" aria-label="放大">＋</button><button id="fit">适合</button></nav>
+<div id="viewport"><svg id="canvas" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="原图与可编辑矩形" tabindex="0"><image id="original"></image><g id="boxes"></g><g id="handles"></g></svg></div>
+<footer>拖动选中框可移动，拖动角点可调整大小。坐标基于原始图片。<span id="dirty">无未保存修改</span></footer>
+</section>
+<aside id="properties"><h2>属性</h2><p id="selection" class="hint">选择一个元素开始校正</p>
+<form id="form"><label>基础类型<select id="type"><option value="text">文字</option><option value="image">图片</option><option value="container">容器</option><option value="other">其他</option></select></label>
+<fieldset><legend>矩形坐标 · 像素</legend><div class="coordinates"><label>X1<input id="x1" type="number" step="1"></label><label>Y1<input id="y1" type="number" step="1"></label><label>X2<input id="x2" type="number" step="1"></label><label>Y2<input id="y2" type="number" step="1"></label></div></fieldset>
+<label>语义标签<select id="tags" multiple size="5"><option value="icon">图标</option><option value="character_illustration">角色立绘</option><option value="illustration">插画</option><option value="background">背景</option><option value="button">按钮</option><option value="panel">面板</option><option value="map">地图</option><option value="bar">条形控件</option></select></label>
+<label>父元素<select id="parent"></select></label><label>关联文字<select id="links" multiple size="3"></select></label>
+<div id="text-fields"></div><label><input id="locked" type="checkbox"> 锁定全部字段</label>
+<button id="apply" type="submit">应用属性</button><button id="delete" class="danger" type="button">删除元素，保留子项</button></form>
+<section class="history"><h2>已保存版本</h2><select id="history" aria-label="历史版本"></select><button id="restore">恢复为新草稿</button><button id="reload">重新载入草稿</button><p class="hint">确认版本生成有效布局、文字、切片和标注图。原图及 OCR 记录始终保留。</p></section></aside>
+</main></body></html>

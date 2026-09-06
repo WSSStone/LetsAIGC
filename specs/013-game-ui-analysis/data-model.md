@@ -1,13 +1,13 @@
 # 013 游戏 UI 解析：数据模型
 
-本文件定义拟实现的领域合同，尚未加入运行代码。按首版单图/搜索→编辑→批次分期实现，不要求预览提前构造全部实体。需求依据为 [spec.md](/C:/Programs/LetsAIGC/specs/013-game-ui-analysis/spec.md)，执行边界见 [execution.md](/C:/Programs/LetsAIGC/specs/013-game-ui-analysis/contracts/execution.md)。
+本文件包含已交付预览及后续拟实现的领域合同；人工校正增量已由T043—T050交付预览。按首版单图/搜索→人工校正→编辑→批次分期实现，不要求预览提前构造全部实体。需求依据为 [spec.md](/C:/Programs/LetsAIGC/specs/013-game-ui-analysis/spec.md)，执行边界见 [execution.md](/C:/Programs/LetsAIGC/specs/013-game-ui-analysis/contracts/execution.md)。
 
 ## 1. 公共类型与版本策略
 
-- 继续使用现有 `Identifier`、64 位小写十六进制 `Digest`、不可变 `ArtifactRef`；服务 DTO 总大小不超过 64 KiB。路径、原始 URL、OCR 正文和用户说明仅存在受控本地素材中，不放入历史 DTO。
-- 新 UI 模型使用 Pydantic v2，`extra=forbid`、有限数值、显式 `schema_version=1`。索引、比例和预算不可为 NaN/Infinity，整数不接受布尔值。
+- 继续使用现有 `Identifier`、64 位小写十六进制 `Digest`、不可变 `ArtifactRef`；运行时历史/传输 DTO 总大小不超过 64 KiB；本地review正文API上限1MiB，属于受限内容通道，不能直接写进Temporal载荷。路径、原始 URL、OCR 正文和用户说明仅存在受控本地素材中，不放入历史 DTO。
+- 新 UI 模型使用 Pydantic v2，`extra=forbid`、有限数值、默认显式 `schema_version=1`；新增ReviewLayout使用独立v2，历史模型不增加字段。索引、比例和预算不可为 NaN/Infinity，整数不接受布尔值。
 - 本地内容模型允许受控文字和来源字段；传输模型额外应用现有 `validate_payload`。不能直接让保存 OCR 正文的内容模型继承会误拒绝普通文本的传输模型。
-- 既有 `PipelinePlan`、`TaskBudget`、`GenerationPlan` v1 的字段和序列化保持不变。UI 入口为 `TaskBudget.max_revisions` 显式赋 2，不沿用类型默认 10 或旧预算配置的 3。
+- 既有 `PipelinePlan`、`TaskBudget`、`GenerationPlan` v1 的字段和序列化保持不变。模型生成修订的UI入口为 `TaskBudget.max_revisions` 显式赋 2，不沿用类型默认 10 或旧预算配置的 3。
 - 新 `MaskedGenerationPlan` 使用 `schema_version=2`，保留生成计划必要字段并增加强类型 `image_mask`；只由新版 UI/编译分派器读取。旧无 mask 计划始终按 v1 解析与计算原指纹。
 
 ## 2. 素材供给
@@ -60,11 +60,28 @@ source/hash 必须属于实际已登记输入。layout_ref 在使用任何元素
 
 目标明确时只推荐一个有效方案并直接形成具体待批准子计划，UI显示awaiting_approval；用户批准该子指纹同时确认范围。只有目标含混、无有效区域或用户希望换方案时使用awaiting_selection，提供候选编号。ui select --candidate ID与--selection FILE互斥，可信入口补齐hash/ref并登记，不执行模型/GPU。选择文件保持上述严格结构，但属于高级覆盖入口。
 
-ui plan --selection可为已知手动来源绑定覆盖选择；默认deferred在布局后自动提案，搜索来源未知也不要求用户手填引用。bound选择在当前布局就绪后复核。parse始终none，不产生编辑提案或GPU子计划。提案若需额外VLM仍计入原每图≤4及分析预算，不制造免费规划调用。
+ui plan --selection可为已知手动来源绑定覆盖选择；默认deferred在布局后自动提案，搜索来源未知也不要求用户手填引用。bound选择在当前布局就绪后复核。parse始终none，不产生编辑提案或GPU子计划；其完成后的人工校正使用独立review服务，不调用select。提案若需额外VLM仍计入原每图≤4及分析预算，不制造免费规划调用。
 
-选择以UIStepBinding的selection:<source_id>/revision保存。候选对应的原图/布局/hash与最终selection均冻结；根request_ref/fingerprint不改写。分割或补图批准绑定具体子请求，首次批准同时确认系统建议的范围。替换选择原子更新当前版本并使旧未执行child失效；已完成证据保留，已提交/未知GPU先取消/对账，预算及编辑链计数不重置。
+采用人工校正的选择必须冻结ReviewedLayoutBinding，区域展开读取该版本。未绑定review的历史流程继续使用原模型布局；切勿在运行时选择最新head。
+
+选择以UIStepBinding的selection.<source_id>/revision保存。候选对应的原图/布局/hash与最终selection均冻结；根request_ref/fingerprint不改写。分割或补图批准绑定具体子请求，首次批准同时确认系统建议的范围。替换选择原子更新当前版本并使旧未执行child失效；已完成证据保留，已提交/未知GPU先取消/对账，预算及编辑链计数不重置。
 
 批次父级可把显式选择按source授权重登记到child；默认逐图自动提案，清晰方案等待具体批准，含混方案才等候选选择。每批同时最多一个活动单图child，等待不启动后续图。
+
+## 3.2 人工校正（T043—T050）
+
+详见[review合同](contracts/review.md)。ReviewDocument绑定原task/source及原图、layout v1、texts refs；ReviewLayout v2的base_type与semantic_tags独立于旧VLM kind。原模型产物只读适配，旧元素ID不变；人工新增/修正通过field_sources、replaces_ids和不可变patch追溯。
+
+| 实体 | 关键字段 | 规则 |
+|---|---|---|
+| ReviewPatch | request_id、base_draft_revision、base_confirmed_revision、actions | 白名单动作；无网络/模型/GPU；幂等与CAS |
+| ReviewVersion | review_revision、parent_revision、base_refs、patch_ref、snapshot_ref、origin、created_at | 人工版本独立递增，无2次生成修订上限；原记录不可变 |
+| ReviewHead | task_id、source_id、draft_revision、confirmed_revision | 两个head独立，确认产物齐全后发布 |
+| ReviewedText | text_region_id、ocr_ref?、effective_text、geometry、field_sources | 原OCR分数/正文不覆盖；人工新增不伪造OCR |
+| ReviewedLayoutBinding | task_id、review_revision、review_manifest_ref、layout_ref、texts_ref、canonical_ref | 只接受confirmed版本；下游冻结具体refs/hash |
+| ReviewRequest | task/source、request_id、payload_hash、state、result_ref/error_code | saved/confirming/confirmed/failed/conflict；无费用结算或批准能力 |
+
+草稿打开、保存和确认不改变原PipelineRun状态、根计划指纹及费用。页面锁定字段须解锁才可直接编辑；后续模型建议单列。Review版本及校正layout采用独立DTO，不给旧PipelinePlan/GenerationPlan或VLMSchema增加默认输出字段。新下游request版本显式携带review binding，旧request仍按旧格式读取。
 
 ## 4. 标准图、布局与派生资产
 
@@ -106,7 +123,7 @@ ui plan --selection可为已知手动来源绑定覆盖选择；默认deferred�
 | UIStepBinding | task/step/revision、capability、input refs/hash、参数 hash、依赖版本、输出 refs | 将步骤实际输入与不可变根计划同时固定 |
 | UIChildBinding | parent_task、child_task/fingerprint、root_budget_id、source_ids、purpose、authorization_kind、selection_step_id/revision? | 保持父子作用域，分析继承与精确 GPU 批准分开 |
 | BudgetGroup | root_task、TaskBudget、resource limits、根/每源计数上限、submission_gate、stop_reason | 编辑子流程阶段才加入；首版根身份直接用task_id和已有operations预算，不重复汇总入账 |
-| OperationCharge | operation_id、root_budget_id、capability、计数预留、金额/GPU预留及结算、status | 操作是唯一消费单位；unknown 不清零 |
+| OperationCharge | operation_id、root_budget_id、capability、计数预留（revision_units）、status | 金额/GPU仅关联原operations读取；unknown不清零 |
 | QuotaSnapshot | provider、scope_id、known/stale/unknown、单位、套餐/Key限制、剩余、observed_at、reset_at?、版本 | 仅白名单字段；作用域ID不使用密钥/邮箱 |
 | QuotaReservation | operation_id、snapshot_id、单位、状态、covered_watermark | 未确认用量在快照未覆盖前保守扣减 |
 | RouteDecision | logical_query_id、attempt_no、provider、snapshot_ref、策略hash、原因、cooldown_until | 提交前固定；重试读取原决定 |
@@ -116,19 +133,23 @@ ui plan --selection可为已知手动来源绑定覆盖选择；默认deferred�
 
 ## 7. 公共账本分期迁移
 
+2026-09-06新增T044：在当前v3之后先迁至v4，增加`ui_review_heads`（主键task_id/source_id及draft/confirmed head）、`ui_review_revisions`（主键task_id/source_id/review_revision；parent/state/artifact refs）、`ui_review_requests`（主键task_id/source_id/request_id；payload hash/result/state）。T020的原父子预算迁移顺延v4→v5，已存在v3与更早数据不变。版本分配、幂等响应和CAS head同一SQLite事务；先写ArtifactStore再发布，不将正文写入公共安全索引。所有写入者停机、备份、失败回滚及旧二进制拒绝新版均需验证。
+
+
 不另建UI数据库，费用和GPU结算始终在已有operations。按实际能力引入数据：
 
 | 阶段 | 数据库版本迁移 | 新表 |
 |---|---|---|
 | 手动单图 | v1→v2 | ui_step_bindings |
 | 双后端搜索 | v2→v3 | quota_scopes、quota_snapshots、quota_reservations、quota_routes、quota_probes |
-| 编辑子流程 | v3→v4 | ui_budget_groups、ui_child_bindings、ui_operation_charges |
+| 人工校正 | v3→v4 | ui_review_heads、ui_review_revisions、ui_review_requests |
+| 编辑子流程 | v4→v5 | ui_budget_groups、ui_child_bindings、ui_operation_charges |
 
 单图阶段root_budget_id是现有task_id；quota route唯一键用(root_task_id,logical_query_id,attempt_no)，不外键依赖尚不存在的预算组。跨任务scope额度共享不等于父子预算共享。步骤唯一键为(task_id,step_id,revision)，实际输入/参数hash随不可变绑定保存，不改变旧operations.input_hash的v1含义。
 
 编辑阶段ui_operation_charges.operation_id唯一外键关联原operations，仅保存归组/计数/版本及额外资源信息，实际金额不复制。父子绑定检查同根无环和能力/预算子集；选择当前版本在提交前验证。
 
-BEGIN IMMEDIATE内完成适用的取消/授权、单任务或根组预算/计数检查及额度决策预留，I/O在事务外。结算和准入各自原子化，异常费用不能通过并发提交绕过限制。首版只需单任务分支，父子分支在v4增加。
+BEGIN IMMEDIATE内完成适用的取消/授权、单任务或根组预算/计数检查及额度决策预留，I/O在事务外。结算和准入各自原子化，异常费用不能通过并发提交绕过限制。首版只需单任务分支，父子分支在v5增加。
 
 每次升级先停写、备份、事务迁移/失败回滚，并运行这一增量与适用旧金样；禁止旧二进制打开不支持的版本。新兼容Worker可回放旧历史，旧payload/fingerprint不重写；数据库版本与MaskedGenerationPlan的schema_version=2是独立编号。
 
@@ -153,3 +174,5 @@ BEGIN IMMEDIATE内完成适用的取消/授权、单任务或根组预算/计数
 指标：OCR CER、检测/分割 IoU、文字关联 precision/recall、带事实标签的场景语义准确率、已知背景编辑区误差及接缝人工评分；无真值图片不计入背景恢复准确率。候选/失败修订的质量报告均保留。
 
 `UIAcceptanceEvidence` 区分 mock/offline/runtime/network/gpu，引用 U-V01—U-V14 和 M-U1—M-U3。纯本地任务记录代码版本、命令、结果及跳过原因；发生外部调用才增加实际输入/计划指纹、批准、提供方受理次数、费用、运行ID与适用硬件峰值。证据可复用须注明适用版本和缺口，不把本地验证伪装为真实模型验收。
+
+T019 可执行机器合同及验证层次见 [editing.md](contracts/editing.md)。结构 schema 不替代运行时 scope/hash/几何/像素校验；T020父子实现已通过离线验收，GPU provider接线仍待后续任务。

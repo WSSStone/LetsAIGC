@@ -1,6 +1,27 @@
 # 013 UI 工作流：开发定位与实施后使用
 
-当前已完成手动单图和双后端搜索的代码接线与离线验证，真实预览验收仍待 T010/T017/T018。可用命令及本机准备条件见[开发使用指南](../../docs/game-ui-analysis.md)。本页保留完整实施后的使用目标：拆解补图、批次和正式质量验收部分尚未开放。正式参数见[CLI契约](contracts/cli.md)，实际完成状态见[任务记录](tasks.md)。
+当前手动单图与SerpApi/Tavily双后端搜索已通过真实预览验收，含三例手动解析和一次OCR中断恢复；可用预览已交付，完整质量验收待完成。可用命令及本机准备条件见[开发使用指南](../../docs/game-ui-analysis.md)。本页保留完整实施后的使用目标：拆解补图、批次和正式质量验收部分尚未开放。正式参数见[CLI契约](contracts/cli.md)，实际完成状态见[任务记录](tasks.md)。
+
+
+## 人工校正预览（T043—T050）
+
+执行顺序为已完成预览→人工校正→拆解/补图→批次/正式评估。原T019—T042保留编号，新任务插入执行顺序，不按编号递增开工。
+
+已有成功 parse 且本地账本为 v4 时可运行（旧库先按使用指南停写、备份迁移）：
+
+```sh
+conda run --no-capture-output -n letsaigc-core python -m letsaigc ui review TASK_ID
+```
+
+页面显示原图、元素列表和属性。补框/改框，选择文字、图像或容器及可选标签，改字和父级，必要时撤销。保存草稿便于重开；确认后得到独立版本的布局、有效文字、切片及标注图，不发出模型请求、不改变原OCR或批准。原图不变，缺产物明确拒绝，不能通过打开页面重跑识别。
+
+T021之后可从页面显示的已确认版本准备后续编辑计划：
+
+```sh
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui plan --reviewed-task TASK_ID --review-revision 1 --mode decompose --budget configs/ui-analysis/budget-example.yaml
+```
+
+`ui review` 已提供；上述 `ui plan --reviewed-task` 仍待 T021，不能提前执行。确认布局只选择校正版本；分割/补图仍形成新的具体批准。原自动流程保留且显示model来源，运行中不自动切换到最新review。真实浏览器校正验收使用已有三例开发输入并记录零推理；独立评估集不得拿校正结果当真值。完整合同见[人工校正](contracts/review.md)。
 
 ## 开发入口
 
@@ -192,3 +213,8 @@ conda run --no-capture-output -n letsaigc-core ruff check .
 ```
 
 不能把预览、模拟合同或历史测试当成完整验收，也不为最终汇总重复消耗已验收的真实请求。
+
+
+## 2026-09-06 编辑准备实施状态
+
+T021—T023、T025—T026已完成，入口命令和候选选择见[编辑区域准备](../../docs/game-ui-analysis.md#编辑区域准备)。reviewed-task冻结确认版本，automatic-task显式沿用原自动布局，均不重跑OCR/VLM；核心环境无需Torch。当前编辑execute仍等待T028工作流接线，勿消费旧批准尝试执行。真实SAM/CUDA及锁定ComfyUI本机资源尚未就绪，T024/T027保持LIVE未验收。完整回归565 passed、4 skipped，不能替代真实GPU或最终质量验收。

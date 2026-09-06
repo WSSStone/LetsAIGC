@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from ..errors import RuntimeExecutionError, ValidationError
 from ..schemas import MediaOutputDeclaration
@@ -15,9 +15,14 @@ class DiscoveredOutput:
 
 
 def _safe_output_path(output_root: Path, subfolder: str, filename: str) -> Path:
-    relative = Path(subfolder) / filename
-    if relative.is_absolute() or ".." in relative.parts or not filename:
-        raise ValidationError(f"ComfyUI output must use a safe relative path: {relative}")
+    # ComfyUI records can come from Windows even when this client runs on POSIX.
+    parts = [Path(value.replace("\\", "/")) for value in (subfolder, filename)]
+    if not filename or any(
+        part.is_absolute() or ".." in part.parts or PureWindowsPath(value).drive
+        for value, part in zip((subfolder, filename), parts, strict=True)
+    ):
+        raise ValidationError("ComfyUI output must use a safe relative path")
+    relative = parts[0] / parts[1]
     root = output_root.resolve()
     candidate = (root / relative).resolve()
     if not candidate.is_relative_to(root):

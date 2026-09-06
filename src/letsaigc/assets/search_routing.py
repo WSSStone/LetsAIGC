@@ -13,7 +13,7 @@ class QuotaLedger:
     def __init__(self, ledger):
         self.ledger = ledger
         with ledger.transaction() as db:
-            if db.execute("PRAGMA user_version").fetchone()[0] != 3:
+            if db.execute("PRAGMA user_version").fetchone()[0] not in {3, 4, 5}:
                 raise PipelineError("migration_required", "Stop writers and migrate the ledger to v3")
 
     def scope(self, provider, account_alias, credential):

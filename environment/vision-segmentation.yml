@@ -1,0 +1,18 @@
+name: letsaigc-vision-segmentation
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  # The operator prepares these exact wheels in the isolated environment.
+  # Runtime startup never installs packages or downloads model files.
+  - pip:
+      - transformers==4.57.6
+      - torch==2.9.1
+      - torchvision==0.24.1
+      - pydantic==2.13.5
+      - Pillow==12.3.0
+      - PyYAML>=6.0,<7
+      - psutil>=5.9,<8

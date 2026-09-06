@@ -1,6 +1,6 @@
 # 013 UI 命令行契约
 
-状态：当前分支已接通 `letsaigc ui` 的单图 parse 命令及两家搜索适配，离线验证通过，真实预览尚未验收。Root `--json` 位于 `ui` 之前。下表仍包含后续编辑/批次合同：select、revise 尚未注册，编辑和批次 plan 返回 capability_not_ready；不静默改模式或截断输入。实际使用与就绪条件见[开发使用指南](../../../docs/game-ui-analysis.md)，验收状态以[任务记录](../tasks.md)为准。
+状态：当前分支已接通 `letsaigc ui` 的单图 parse 命令及两家搜索适配，离线验证通过，T010/T017/T018真实预览已验收。Root `--json` 位于 `ui` 之前。下表仍包含后续编辑/批次合同：review 已注册；select、revise 尚未注册，编辑和批次 plan 返回 capability_not_ready；不静默改模式或截断输入。实际使用与就绪条件见[开发使用指南](../../../docs/game-ui-analysis.md)，验收状态以[任务记录](../tasks.md)为准。
 
 ## 命令
 
@@ -10,6 +10,7 @@
 | `ui plan` | `--input-manifest REF_FILE` 与 `--query TEXT` 二选一；`--max-images N` 仅搜索可用；`--selection FILE` 高级选项；`--mode parse|decompose|reconstruct`；`--target scene_background|map_surface`；`--budget FILE` 必填；`--policy FILE` 可选；`--language auto|zh|en`；`--text-assets`、`--remove-text`、`--allow-local-revision` 可选 | 确定性验证/登记不可变计划，不搜索、不调用VLM/GPU；reconstruct必须target |
 | `ui select TASK_ID` | `--candidate ID` 与 `--selection FILE` 必选其一、互斥 | 登记候选或高级覆盖，形成具体待批准子计划；不调用模型或GPU，不视为批准 |
 | `ui execute TASK_ID` | `--approve FINGERPRINT` 必填 | 本地记录精确回执并启动或唤醒相应任务；对GPU子计划同时确认显示的范围并批准该操作 |
+| `ui review TASK_ID`（T046新增） | 默认打开任务作用域本地页面；`--open/--no-open`控制浏览器启动，JSON不输出令牌 | 仅操作既有解析的人工草稿/确认版本，零模型、零GPU、无批准权；详见[校正合同](review.md) |
 | `ui inspect TASK_ID` | `--local` 可选 | 活跃查询或显式本地投影；显示来源、阶段、产物、预算、候选及pending_approvals |
 | `ui revise TASK_ID` | `--request FILE` 必填 | 验证枚举修订请求，返回新修订或子计划及批准要求，不默默执行新增消费 |
 | `ui resume TASK_ID` | 无 | 复用既有计划、结果和仍有效批准，继续已授权步骤；不提高预算 |
@@ -36,7 +37,7 @@
 5. 选择以版本化UIStepBinding保存，子请求绑定selection_ref及hash；根计划不修改。替换范围使旧未执行子计划与指纹失效，保留历史证据。存在已提交/未知GPU工作时先取消或对账，不能直接替换后重发。
 6. select不调用OCR/VLM/GPU，不重置根预算、调用或修订次数。批次阶段对实际等待的单图child选择。
 
-parse始终selection_mode=none，完成后直接收集结果，对其select必须拒绝。decompose提取对象可请求--text-assets，keep/remove必须为空，不接受--target或--remove-text。reconstruct必须指定--target，保留/移除列表进一步限定目标区域，可请求--text-assets/--remove-text。parse不接受上述编辑选项。非法组合在plan拒绝。
+parse始终selection_mode=none，完成后直接收集结果，对其select必须拒绝；其完成后的ui review是独立人工校正入口，不是select，也不改parse终态。decompose提取对象可请求--text-assets，keep/remove必须为空，不接受--target或--remove-text。reconstruct必须指定--target，保留/移除列表进一步限定目标区域，可请求--text-assets/--remove-text。parse不接受上述编辑选项。非法组合在plan拒绝。
 
 ## 高级选择文件
 
@@ -80,3 +81,15 @@ parse始终selection_mode=none，完成后直接收集结果，对其select必�
 旧agent/pipeline/runtime命令及JSON语义保持不变。UI CLI复用可信批准入口，不能注册成运行时Agent工具。
 
 合同测试先于对应CLI实现：首版验证参数、JSON、取得指纹、单图搜索及未就绪能力；编辑阶段验证默认提案、候选与高级覆盖、旧指纹失效、select零模型调用；批次阶段补输入映射与部分结果。调用公共批准/预算机制的边界断言即可，不在CLI复制完整故障矩阵。真实链路按[Quickstart](../quickstart.md)分阶段验收。
+
+## 人工校正增量与后续入口
+
+T046的`ui review`只操作持有完整可验证parse产物的任务，模型/搜索不可用不影响画框与保存。`inspect`可在新版本输出中显示review draft/confirmed版本及产物引用，不能把review状态混入原任务state。旧CLI金样保持；新增字段须有对应输出版本/合同。
+
+T048提供固定ReviewedLayoutBinding读取；T021才将`ui plan --reviewed-task TASK_ID --review-revision REV --mode decompose|reconstruct ...`接入后续流程，与`--query/--input-manifest/--selection`互斥。省略REV时仅在plan阶段解析一次最新confirmed并展示，冻结具体ref/hash；没有confirmed返回`review_not_confirmed`，不能偷偷用草稿。该入口复用已确认布局及原图，不重跑OCR/VLM；仍需新目标/预算和适用的具体GPU批准。既有无review自动流程继续可用并明确来源。
+
+显式原自动布局入口为 `ui plan --automatic-task TASK_ID --mode decompose|reconstruct ...`，与 `--reviewed-task/--query/--input-manifest` 互斥，只接受已 succeeded 的单图 parse。验证原 manifest/fingerprint、原图、canonical、布局与文字后重登记新任务引用，保留 automatic 来源与原任务证明，不初始化 review，不重新运行 OCR/VLM。根计划指纹冻结新输入快照；选择候选以不可变 selection_index 登记，T028 再连接 UIStepBinding 和具体子批准。在 T028 完成前，inspect 的编辑 pending_approvals 为空，execute 明确 capability_not_ready，不消费批准。两条复用路径都提供离线候选预览；查询/新图仍需原分析授权后才能取得布局。
+
+校正不依赖--allow-local-revision或TaskBudget.max_revisions；T029才接入显式模型局部重读/复核，原调用计数及批准边界不变，结果先形成建议再由人工采纳。页面的保存/确认绝不等同execute --approve，服务也不提供这类接口。
+
+T019 选择文件机器合同、确认布局入口及父子具体批准边界见 [editing.md](editing.md)。

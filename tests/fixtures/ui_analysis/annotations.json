@@ -1,0 +1,250 @@
+{
+  "schema_version": 1,
+  "dataset_status": "incomplete_observed_subset",
+  "evaluation_policy": {
+    "automatic": "retain_model_outputs as observed evidence; never use as ground truth",
+    "human_assisted": "retain confirmed review evidence as a separate lane; never use review head as ground truth",
+    "independent_ground_truth": "requires an independently frozen annotation and is empty in this audit"
+  },
+  "lanes": {
+    "automatic": {
+      "case_count": 3,
+      "cases": ["hades2-en-landscape", "starrail-zh-dense", "clashroyale-en-portrait"]
+    },
+    "human_assisted": {
+      "case_count": 3,
+      "cases": ["hades2-en-landscape", "starrail-zh-dense", "clashroyale-en-portrait"]
+    },
+    "independent_ground_truth": {
+      "case_count": 0,
+      "cases": []
+    }
+  },
+  "cases": {
+    "hud-en-landscape": {
+      "source_annotation": {
+        "path": "tests/fixtures/ui_analysis/preview-annotations.json",
+        "sha256": "49f6920e4d27b78dca9577155142bf19013c23e31635aba42858d5f19340b61c",
+        "status": "synthetic_reference_only",
+        "ground_truth_eligible": false
+      },
+      "automatic": null,
+      "human_assisted": null,
+      "independent_ground_truth": null
+    },
+    "hud-zh-dense": {
+      "source_annotation": {
+        "path": "tests/fixtures/ui_analysis/preview-annotations.json",
+        "sha256": "49f6920e4d27b78dca9577155142bf19013c23e31635aba42858d5f19340b61c",
+        "status": "synthetic_reference_only",
+        "ground_truth_eligible": false
+      },
+      "automatic": null,
+      "human_assisted": null,
+      "independent_ground_truth": null
+    },
+    "hud-portrait": {
+      "source_annotation": {
+        "path": "tests/fixtures/ui_analysis/preview-annotations.json",
+        "sha256": "49f6920e4d27b78dca9577155142bf19013c23e31635aba42858d5f19340b61c",
+        "status": "synthetic_reference_only",
+        "ground_truth_eligible": false
+      },
+      "automatic": null,
+      "human_assisted": null,
+      "independent_ground_truth": null
+    },
+    "hades2-en-landscape": {
+      "source_annotation": null,
+      "automatic": {
+        "evaluation_lane": "automatic",
+        "status": "observed_runtime_output",
+        "is_model_output": true,
+        "ground_truth_eligible": false,
+        "artifacts": [
+          {
+            "role": "analysis",
+            "path": ".local/validation/ui-analysis/t010-commercial-2026-09-06/results/hades2-en-landscape/analysis.json",
+            "sha256": "459f9bc8c3f6e75b7196dc6f422c7f1f9ee6458dd9f7a24c00f035267a6b9d72"
+          },
+          {
+            "role": "layout",
+            "path": ".local/validation/ui-analysis/t010-commercial-2026-09-06/results/hades2-en-landscape/layout.json",
+            "sha256": "cd5c2718176df25d10706cae34a24f88d477faed3a4e4e490e620dd3bd4995f3"
+          },
+          {
+            "role": "texts",
+            "path": ".local/validation/ui-analysis/t010-commercial-2026-09-06/results/hades2-en-landscape/texts.json",
+            "sha256": "b9040153f696b1f89f9b75f9cc8f5dca2a16f5de74ea672d628c40be2b90d6ee"
+          }
+        ]
+      },
+      "human_assisted": {
+        "evaluation_lane": "human_assisted",
+        "status": "confirmed_review_evidence",
+        "review_revision": 11,
+        "is_model_output": false,
+        "is_review_head": true,
+        "ground_truth_eligible": false,
+        "artifacts": [
+          {
+            "role": "review_binding",
+            "path": ".local/validation/ui-analysis/review-2026-09-06/exports/ui-49cd0e0e5df24ae0a81751faa309c5b7/v11/binding.json",
+            "sha256": "ccb4f16793ca8b3bc77a0c5d757195a5eadef734e59ab53631730919556d6617"
+          },
+          {
+            "role": "review_manifest",
+            "path": ".local/validation/ui-analysis/review-2026-09-06/exports/ui-49cd0e0e5df24ae0a81751faa309c5b7/v11/manifest.json",
+            "sha256": "4c4a42651a1372e13957ae60470f9e960aba55df54d910c52b9502d6c5eb56fa"
+          },
+          {
+            "role": "review_layout",
+            "path": ".local/validation/ui-analysis/review-2026-09-06/exports/ui-49cd0e0e5df24ae0a81751faa309c5b7/v11/layout.json",
+            "sha256": "3e5ff6f43707ca6c5814fd981d5fc806b7ca4f6e86873ff7678a25fea1bf4a05"
+          },
+          {
+            "role": "review_texts",
+            "path": ".local/validation/ui-analysis/review-2026-09-06/exports/ui-49cd0e0e5df24ae0a81751faa309c5b7/v11/texts.json",
+            "sha256": "538b5b0fdc8b9ea44dc28e26d4ea8be67403a8ce7c5b75049f5c97779efbfa2b"
+          }
+        ]
+      },
+      "independent_ground_truth": {
+        "evaluation_lane": "ground_truth",
+        "status": "missing",
+        "frozen": false,
+        "independent": false,
+        "ground_truth_eligible": false,
+        "artifacts": []
+      }
+    },
+    "starrail-zh-dense": {
+      "source_annotation": null,
+      "automatic": {
+        "evaluation_lane": "automatic",
+        "status": "observed_runtime_output",
+        "is_model_output": true,
+        "ground_truth_eligible": false,
+        "artifacts": [
+          {
+            "role": "analysis",
+            "path": ".local/validation/ui-analysis/t010-commercial-2026-09-06/results/starrail-zh-dense/analysis.json",
+            "sha256": "ce685374ee2c403ecd2096be51903756f1785137345aff0b60c156af06fed4bc"
+          },
+          {
+            "role": "layout",
+            "path": ".local/validation/ui-analysis/t010-commercial-2026-09-06/results/starrail-zh-dense/layout.json",
+            "sha256": "fb77f8b1958ef4fec7cf35545604bd2e13f5d8981c3bfa80f2a00bd0a686890a"
+          },
+          {
+            "role": "texts",
+            "path": ".local/validation/ui-analysis/t010-commercial-2026-09-06/results/starrail-zh-dense/texts.json",
+            "sha256": "944ae866498957201f71a30272d8e91e7e85d36c65b79ba593384828145e4c1b"
+          }
+        ]
+      },
+      "human_assisted": {
+        "evaluation_lane": "human_assisted",
+        "status": "confirmed_review_evidence",
+        "review_revision": 1,
+        "is_model_output": false,
+        "is_review_head": true,
+        "ground_truth_eligible": false,
+        "artifacts": [
+          {
+            "role": "review_binding",
+            "path": ".local/validation/ui-analysis/review-2026-09-06/exports/ui-ab65f23641404466b51f0a1761366449/v1/binding.json",
+            "sha256": "d7aa2174a0b794e81e68ac22ab36a2f195480c5957e209a5215a825b4de14ec7"
+          },
+          {
+            "role": "review_manifest",
+            "path": ".local/validation/ui-analysis/review-2026-09-06/exports/ui-ab65f23641404466b51f0a1761366449/v1/manifest.json",
+            "sha256": "b96b80c47ba830f716fb9d1c31cb122595543449666960c5dc1ebf8e9cbad4d7"
+          },
+          {
+            "role": "review_layout",
+            "path": ".local/validation/ui-analysis/review-2026-09-06/exports/ui-ab65f23641404466b51f0a1761366449/v1/layout.json",
+            "sha256": "86795068cc3df8f1529f330d0f3e60595bb2f05b04f94fccee3d2aa6e095259f"
+          },
+          {
+            "role": "review_texts",
+            "path": ".local/validation/ui-analysis/review-2026-09-06/exports/ui-ab65f23641404466b51f0a1761366449/v1/texts.json",
+            "sha256": "e120e72e4ac43f163839790116736e2e6336297dbd4e78f8e8378314a388a647"
+          }
+        ]
+      },
+      "independent_ground_truth": {
+        "evaluation_lane": "ground_truth",
+        "status": "missing",
+        "frozen": false,
+        "independent": false,
+        "ground_truth_eligible": false,
+        "artifacts": []
+      }
+    },
+    "clashroyale-en-portrait": {
+      "source_annotation": null,
+      "automatic": {
+        "evaluation_lane": "automatic",
+        "status": "observed_runtime_output",
+        "is_model_output": true,
+        "ground_truth_eligible": false,
+        "artifacts": [
+          {
+            "role": "analysis",
+            "path": ".local/validation/ui-analysis/t010-commercial-2026-09-06/results/clashroyale-en-portrait/analysis.json",
+            "sha256": "73e4fafde42cb6e6fb769c9237965465b83e0f9a9cf9318906a63ac6858c6b92"
+          },
+          {
+            "role": "layout",
+            "path": ".local/validation/ui-analysis/t010-commercial-2026-09-06/results/clashroyale-en-portrait/layout.json",
+            "sha256": "4daffe3222bafd55ceb480eda74d37873d79d0ec2c78a8447c8b625388643cc4"
+          },
+          {
+            "role": "texts",
+            "path": ".local/validation/ui-analysis/t010-commercial-2026-09-06/results/clashroyale-en-portrait/texts.json",
+            "sha256": "da7228977a33a2c7d597e98c089e306b131ef001ec55b8364c25823515b49a50"
+          }
+        ]
+      },
+      "human_assisted": {
+        "evaluation_lane": "human_assisted",
+        "status": "confirmed_review_evidence",
+        "review_revision": 4,
+        "is_model_output": false,
+        "is_review_head": true,
+        "ground_truth_eligible": false,
+        "artifacts": [
+          {
+            "role": "review_binding",
+            "path": ".local/validation/ui-analysis/review-2026-09-06/exports/ui-7d00b9a3f5dc47d592023dc1c8cd95ff/v4/binding.json",
+            "sha256": "3c6bea334ea90338ef4824525858cf722f35b56e63a132d73670671988fb954e"
+          },
+          {
+            "role": "review_manifest",
+            "path": ".local/validation/ui-analysis/review-2026-09-06/exports/ui-7d00b9a3f5dc47d592023dc1c8cd95ff/v4/manifest.json",
+            "sha256": "132d2d953d8078e2c96aeb2e8b03ba56b9c85c67f501d2c82e8df670810c1234"
+          },
+          {
+            "role": "review_layout",
+            "path": ".local/validation/ui-analysis/review-2026-09-06/exports/ui-7d00b9a3f5dc47d592023dc1c8cd95ff/v4/layout.json",
+            "sha256": "4f3f78e1d8f231620d54c241f87009154e006f011fb23ed2183de7107208d788"
+          },
+          {
+            "role": "review_texts",
+            "path": ".local/validation/ui-analysis/review-2026-09-06/exports/ui-7d00b9a3f5dc47d592023dc1c8cd95ff/v4/texts.json",
+            "sha256": "e0a82d35e67b69be7ef22b4e2bc64150eed1c9427ffd1ab03d3be89ef8d8002c"
+          }
+        ]
+      },
+      "independent_ground_truth": {
+        "evaluation_lane": "ground_truth",
+        "status": "missing",
+        "frozen": false,
+        "independent": false,
+        "ground_truth_eligible": false,
+        "artifacts": []
+      }
+    }
+  }
+}

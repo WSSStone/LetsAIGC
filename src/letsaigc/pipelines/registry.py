@@ -3,21 +3,31 @@
 from ..schemas.pipeline import PipelinePlan
 from .contracts import Capability
 from .errors import PipelineError
+from .ui_children import CHILD_WORKFLOWS, is_child_plan, validate_child_plan
 
 CAPABILITIES = {
     "simulation.generate": Capability(id="simulation.generate", idempotent_submission=True, can_cancel=True),
     "comfy.generate": Capability(id="comfy.generate", can_cancel=True, resource="local-gpu"),
+    # Registered for trusted child planning only.  T022+ provide the provider
+    # adapters; leaving these without a backend prevents a legacy Comfy fallthrough.
+    "ui.segment": Capability(id="ui.segment", resource="local-gpu"),
+    "ui.inpaint": Capability(id="ui.inpaint", resource="local-gpu"),
 }
 WORKFLOWS = {
     "temporal_smoke": ("letsaigc.smoke.v1", "simulation.generate"),
     "comfy_generation": ("letsaigc.comfy.v1", "comfy.generate"),
 }
+for _purpose, (_workflow, _capability) in CHILD_WORKFLOWS.items():
+    WORKFLOWS[_workflow] = (f"letsaigc.ui.{_purpose}.v1", _capability)
 
 
 def validate_registration(plan: PipelinePlan) -> Capability:
     if plan.workflow_type == "ui_analysis":
         validate_ui_registration(plan)
         return UI_CAPABILITIES["ui.analyze"]
+    if is_child_plan(plan):
+        validate_child_plan(plan)
+        return CAPABILITIES[plan.envelope.allowed_capabilities[0]]
     definition = WORKFLOWS.get(plan.workflow_type)
     if not definition or plan.envelope.allowed_capabilities != [definition[1]]:
         raise PipelineError("prohibited_capability", "Workflow and capability registration do not match")
@@ -48,6 +58,8 @@ UI_OUTPUT_ROLES = {
     "ui.layout": {"layout", "quality_report"},
     "ui.crop": {"rect_crop", "overlay", "asset_index"},
     "ui.project": {"manifest"},
+    "ui.segment": {"mask", "alpha"},
+    "ui.inpaint": {"image", "reconstruction", "output"},
 }
 WORKFLOWS["ui_analysis"] = ("letsaigc.ui.analysis.v1", "ui.analyze")
 
@@ -76,8 +88,6 @@ def validate_ui_registration(plan: PipelinePlan, artifacts=None):
     request = UIAnalysisRequest.model_validate_json(artifacts.read(refs["request_ref"]))
     policy = UIPolicy.model_validate_json(artifacts.read(refs["policy_ref"]))
     UIEvaluationPolicy.model_validate_json(artifacts.read(refs["evaluation_ref"]))
-    if request.output_mode != "parse":
-        raise PipelineError("capability_not_ready", "UI editing is not available in the single-image preview")
     count = len(request.input.inputs) if request.input.kind == "manual" else request.input.max_images
     if count != 1:
         raise PipelineError("capability_not_ready", "UI batch execution is not available yet")
@@ -96,10 +106,16 @@ def resolve_ui_step(plan: PipelinePlan, binding):
     from ..schemas.ui import UIStepBinding
 
     binding = UIStepBinding.model_validate(binding.model_dump(mode="json"))
-    validate_ui_registration(plan)
+    child = is_child_plan(plan)
+    if child:
+        validate_child_plan(plan)
+    else:
+        validate_ui_registration(plan)
     if binding.task_id != plan.task_id or binding.capability not in plan.envelope.allowed_capabilities:
         raise PipelineError("prohibited_capability")
     name = binding.capability.removeprefix("ui.")
-    if binding.step_id != name and not binding.step_id.startswith(name + "."):
+    if not child and binding.step_id != name and not binding.step_id.startswith(name + "."):
         raise PipelineError("invalid_step", "Step ID must belong to its registered capability")
+    if child:
+        return CAPABILITIES[binding.capability]
     return UI_CAPABILITIES[binding.capability]

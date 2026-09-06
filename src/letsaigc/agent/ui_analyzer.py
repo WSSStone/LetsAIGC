@@ -4,7 +4,7 @@ import base64
 import json
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, TypeAdapter, ValidationError
 
 from ..config import get_setting
 from ..generation.pricing import PricingEntry, calculate_luna_cost, ensure_current, load_pricing
@@ -14,6 +14,8 @@ from ..schemas.pipeline import ArtifactRef, Cost, Digest, Identifier, PipelineMo
 from ..schemas.ui import ImageView, UIAnalysisRequest, UIContent, UIObservation, UIStepBinding
 from ..ui_analysis.coordinates import checked_box
 from .responses import DEFAULT_VLM_MODEL, ResponsesAgentModel, build_llm_client, endpoint_fingerprint
+
+EVIDENCE_POLICY = "source-id-enum-v1"
 
 
 class EvidenceStatement(UIContent):
@@ -69,6 +71,53 @@ class UIVLMPolicy(PipelineModel):
     endpoint_fingerprint: Digest | None
     pricing_ref: ArtifactRef
     max_output_tokens: int = Field(default=4096, ge=256, le=4096, strict=True)
+    # Missing in historical plans; preserve their request schema until newly planned.
+    evidence_policy: Literal["source-id-enum-v1"] | None = None
+
+
+def source_bound_schema(evidence_ids):
+    schema = UIAnalysisOutput.model_json_schema()
+    ids = sorted(set(TypeAdapter(list[Identifier]).validate_python(list(evidence_ids))))
+
+    def enum_count(value):
+        if isinstance(value, dict):
+            return len(value.get("enum", [])) + sum(enum_count(child) for child in value.values())
+        if isinstance(value, list):
+            return sum(enum_count(child) for child in value)
+        return 0
+
+    # Structured Outputs: <=1000 enum values; >250 strings may total <=15000 characters.
+    if not ids or len(ids) + enum_count(schema) > 1000 or (len(ids) > 250 and sum(map(len, ids)) > 15000):
+        raise PipelineError("input_limit")
+    schema["$defs"]["InputEvidenceId"] = {"type": "string", "enum": ids}
+    for definition in schema["$defs"].values():
+        evidence = definition.get("properties", {}).get("evidence_ids")
+        if evidence is not None:
+            evidence["items"] = {"$ref": "#/$defs/InputEvidenceId"}
+    return schema
+
+
+def validation_failure_reason(exc):
+    """Map known local validation errors to codes without persisting their messages."""
+    if isinstance(exc, json.JSONDecodeError):
+        return "invalid_json"
+    if isinstance(exc, ValidationError):
+        return "invalid_schema"
+    return {
+        "Provider moderation refused the request": "response_refused",
+        "Responses did not complete within the bounded request": "response_not_completed",
+        "Unexpected model tool output": "unexpected_output_type",
+        "Analysis response exceeds limit": "response_too_large",
+        "Element IDs must be unique": "duplicate_element_ids",
+        "Analysis cites an unknown source": "unknown_evidence",
+        "Invalid bounding box": "invalid_bbox",
+        "Bounding box is empty or outside canonical image": "invalid_bbox",
+        "Element hierarchy must be acyclic and contain only existing elements": "invalid_hierarchy",
+        "Text link references unknown text or element": "unknown_text_link",
+        "Invalid occlusion references": "invalid_occlusion",
+        "Correction references unknown original text": "unknown_correction_text",
+        "Revision targets must exist": "unknown_revision_target",
+    }.get(str(exc), "validation_failed")
 
 
 def validate_analysis(payload, *, width, height, text_ids, view_ids):
@@ -122,11 +171,16 @@ SYSTEM_PROMPT = (
 
 
 class UIAnalyzer:
-    def __init__(self, *, client=None, model=None, pricing=None, max_output_tokens=4096):
+    def __init__(
+        self, *, client=None, model=None, pricing=None, max_output_tokens=4096, evidence_policy=EVIDENCE_POLICY
+    ):
         self.client = client
         self.model = model or get_setting("LLM_VLM_MODEL", DEFAULT_VLM_MODEL)
         self.pricing = pricing or load_pricing()
         self.max_output_tokens = max_output_tokens
+        if evidence_policy not in {None, EVIDENCE_POLICY}:
+            raise PipelineError("invalid_plan")
+        self.evidence_policy = evidence_policy
         if type(max_output_tokens) is not int or not 256 <= max_output_tokens <= 4096:
             raise PipelineError("invalid_plan")
 
@@ -146,6 +200,11 @@ class UIAnalyzer:
         )
         if len(content.encode()) > 256 * 1024:
             raise PipelineError("input_limit")
+        schema = (
+            source_bound_schema([view.view_id, *(item["text_id"] for item in ocr["texts"])])
+            if self.evidence_policy == EVIDENCE_POLICY
+            else UIAnalysisOutput.model_json_schema()
+        )
         image = base64.b64encode(store.read(view.input_ref)).decode("ascii")
         client = self.client or build_llm_client(timeout=120)
         response = client.responses.create(
@@ -172,7 +231,7 @@ class UIAnalyzer:
                     "type": "json_schema",
                     "name": "game_ui_analysis",
                     "strict": True,
-                    "schema": UIAnalysisOutput.model_json_schema(),
+                    "schema": schema,
                 }
             },
         )
@@ -203,18 +262,26 @@ class UIAnalyzer:
             "view": view.model_dump(mode="json"),
             "output": None,
             "error_code": "usage_unknown" if actual is None else "invalid_analysis",
+            "validation_failure_stage": None,
+            "validation_failure_reason": None,
         }
+        validation_stage = "response_validation"
         try:
             ResponsesAgentModel._check_response(response)
+            validation_stage = "output_type"
             if any(
                 getattr(item, "type", "") not in {"message", "reasoning"} for item in getattr(response, "output", [])
             ):
                 raise ValueError("Unexpected model tool output")
+            validation_stage = "response_size"
             text = getattr(response, "output_text", "")
             if len(text.encode()) > 65536:
                 raise ValueError("Analysis response exceeds limit")
+            validation_stage = "json_decode"
+            payload = json.loads(text)
+            validation_stage = "schema_and_references"
             result["output"] = validate_analysis(
-                json.loads(text),
+                payload,
                 width=view.width,
                 height=view.height,
                 text_ids={item["text_id"] for item in ocr["texts"]},
@@ -222,9 +289,61 @@ class UIAnalyzer:
             )
             if actual is not None:
                 result.update(state="succeeded", error_code=None)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Fixed local codes only: exception messages may contain provider/user content.
+            result["validation_failure_stage"] = validation_stage
+            result["validation_failure_reason"] = validation_failure_reason(exc)
         return result
+
+    @staticmethod
+    def propose_selection(
+        store, task_id, source, layout_ref, *, output_mode="decompose", target=None,
+        remove_text=False, revision=0, operation_id="selection-proposal",
+    ):
+        """Project existing model/human geometry into bounded proposals without inference.
+
+        Decomposition proposes the visible elements together. Background
+        reconstruction uses explicit background/map labels or observed
+        occlusion targets; unclear targets remain a selection request.
+        """
+        from ..ui_analysis.selection import propose_candidates
+
+        layout = json.loads(store.read(layout_ref))
+        elements = layout.get("elements", [])
+        if not elements or len(elements) > 64:
+            return []
+        identity = source.source_id
+
+        def selection(regions, remove=(), keep=()):
+            return {"schema_version": 1, "sources": [{
+                "source_id": identity,
+                "target_regions": regions,
+                "keep_elements": list(keep), "remove_elements": list(remove),
+            }]}
+
+        if output_mode == "decompose":
+            values = [selection([{"kind": "element", "element_id": item["element_id"]} for item in elements])]
+        elif output_mode == "reconstruct" and target in {"scene_background", "map_surface"}:
+            tag = "map" if target == "map_surface" else "background"
+            targets = [item for item in elements if item.get("kind") == tag or tag in item.get("semantic_tags", [])]
+            if not targets and target == "scene_background":
+                behind = {item["behind_id"] for item in layout.get("occlusions", [])}
+                targets = [item for item in elements if item["element_id"] in behind and item.get("kind") == "image"]
+            values = []
+            for item in targets:
+                box = item["bbox"]
+                contained = [other for other in elements if other is not item and
+                             other["bbox"][0] >= box[0] and other["bbox"][1] >= box[1] and
+                             other["bbox"][2] <= box[2] and other["bbox"][3] <= box[3]]
+                keep = [other["element_id"] for other in contained if not remove_text and
+                        (other.get("kind") == "text" or other.get("base_type") == "text")]
+                remove = [other["element_id"] for other in contained if other["element_id"] not in keep]
+                values.append(selection([{"kind": "element", "element_id": item["element_id"]}], remove, keep))
+        else:
+            raise PipelineError("invalid_selection")
+        return propose_candidates(
+            store, task_id, values, {identity: source}, revision=revision, operation_id=operation_id,
+        )
 
 
 class UIAnalysisBackend:
@@ -261,7 +380,8 @@ class UIAnalysisBackend:
                 raise PipelineError("invalid_input")
             notes = params.get("user_notes", "")
         analyzer = UIAnalyzer(
-            client=self.client, model=policy.model, pricing=pricing, max_output_tokens=policy.max_output_tokens
+            client=self.client, model=policy.model, pricing=pricing, max_output_tokens=policy.max_output_tokens,
+            evidence_policy=policy.evidence_policy,
         )
         result = analyzer.analyze(self.artifacts, view, ocr, user_notes=notes)
         ref = self.artifacts.put(

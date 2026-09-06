@@ -86,13 +86,18 @@ def test_connection_is_pinned_with_original_tls_sni_and_no_url_secret_in_record(
         client_factory=lambda: httpx.Client(transport=httpx.MockTransport(handler)),
         dns_resolver=lambda host, port: ["93.184.216.34"],
     )
-    asset = resolver.resolve("https://example.test/image.png?token=private#secret", tmp_path / "inputs")
+    query_secret = "synthetic-query-secret-59d2897b"
+    fragment_secret = "synthetic-fragment-secret-a822b1d5"
+    asset = resolver.resolve(
+        f"https://example.test/image.png?token={query_secret}#{fragment_secret}", tmp_path / "inputs"
+    )
     request = requests[0]
     assert request.url.host == "93.184.216.34"
     assert request.headers["host"] == "example.test"
     assert request.extensions["sni_hostname"] == "example.test"
     assert asset.safe_source == "https://example.test/image.png"
-    assert "private" not in asset.model_dump_json()
+    assert query_secret not in asset.model_dump_json()
+    assert fragment_secret not in asset.model_dump_json()
 
 
 def test_rebinding_private_second_dns_answer_is_blocked(tmp_path: Path) -> None:

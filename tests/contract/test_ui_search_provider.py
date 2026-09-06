@@ -2,6 +2,7 @@ import json
 from io import BytesIO
 
 import httpx
+import pytest
 from PIL import Image, ImageDraw
 
 from letsaigc.assets.resolver import AssetResolver
@@ -15,9 +16,11 @@ from letsaigc.schemas.ui_provider import SearchUIInput
 from letsaigc.ui_providers.search import SearchAcquisition
 
 
-def test_search_stops_after_first_valid_download_and_reuses_it(tmp_path, monkeypatch):
+@pytest.mark.parametrize("excluded_title", [None, "Game HUD Boons Tier List", "Game HUD 角色强度榜"])
+@pytest.mark.parametrize("schema_version", [3, 4, 5])
+def test_search_stops_after_first_valid_download_and_reuses_it(tmp_path, monkeypatch, excluded_title, schema_version):
     service = PipelineService(tmp_path, ui_schema=True)
-    migrate_ui_ledger(service.ledger.path, writers_stopped=True, target_version=3)
+    migrate_ui_ledger(service.ledger.path, writers_stopped=True, target_version=schema_version)
 
     def put(role, value):
         return service.artifacts.put("acquisition", "plan", canonical_json(value).encode(), role=role)
@@ -47,6 +50,7 @@ def test_search_stops_after_first_valid_download_and_reuses_it(tmp_path, monkeyp
         },
     )
     request = UIAnalysisRequest(
+        limits={"downloads_per_query": 1},
         input=SearchUIInput(
             query_ref=put("query", {"queries": ["game HUD"]}),
             criteria_ref=put("criteria", SearchCriteria()),
@@ -89,7 +93,11 @@ def test_search_stops_after_first_valid_download_and_reuses_it(tmp_path, monkeyp
                 200,
                 json={
                     "search_metadata": {"id": "search-123", "status": "Success"},
-                    "images_results": [
+                    "images_results": ([{
+                        "original": "https://example.com/tier.png",
+                        "title": excluded_title,
+                        "link": "https://example.com/tier-list",
+                    }] if excluded_title else []) + [
                         {
                             "original": "https://example.com/ui.png?signature=private",
                             "title": "Game HUD",
@@ -119,11 +127,23 @@ def test_search_stops_after_first_valid_download_and_reuses_it(tmp_path, monkeyp
     assert result.status == "ready" and len(result.sources) == 1
     assert sum(path == "/search.json" for _, _, path in calls) == 1
     assert sum(path == "/ui.png" for _, _, path in calls) == 1
+    assert sum(path == "/tier.png" for _, _, path in calls) == 0
+    if excluded_title:
+        from letsaigc.schemas.pipeline import ArtifactRef
+
+        search = next(op for op in service.ledger.list_operations(plan.task_id) if op.step_id == "search.attempt.1")
+        index_ref = ArtifactRef.model_validate(search.result["candidate_index_ref"])
+        candidates = json.loads(service.artifacts.read(index_ref))
+        assert candidates[0]["metadata_relevant"] is False
+        assert candidates[0]["metadata_rejection_reason"] == "non_ui_tier_list"
     assert service.artifacts.read(result.sources[0].original_ref) == image.getvalue()
     provenance = json.loads(service.artifacts.read(result.sources[0].provenance_ref))
     assert provenance["search_backend"] == "serpapi" and provenance["license_status"] == "unknown"
     assert "signature" not in json.dumps(provenance)
     assert service.ledger.usage(plan.task_id)["actual"].cost_usd == 0.01
+    with service.ledger.transaction() as db:
+        assert db.execute("SELECT COUNT(*) FROM quota_probes WHERE state!='settled'").fetchone()[0] == 0
+        assert db.execute("SELECT COUNT(*) FROM quota_reservations WHERE state!='settled'").fetchone()[0] == 0
     from temporalio import activity
 
     from letsaigc.execution.temporal.ui_activities import UIActivities

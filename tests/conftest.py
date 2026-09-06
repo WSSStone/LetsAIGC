@@ -1,9 +1,21 @@
 """Shared UI test isolation; live tests require a separate, explicit opt-in."""
 
+import json
+import os
 from collections import Counter
 from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture
+def ui_live_evidence():
+    """Read an explicitly selected live run; never initiate inference from pytest."""
+    location = os.getenv("LETSAIGC_UI_LIVE_EVIDENCE")
+    if not location:
+        pytest.skip("Set LETSAIGC_UI_LIVE_EVIDENCE to approved UI run evidence")
+    root = Path(location).resolve(strict=True)
+    return root, json.loads((root / "execution-audit.json").read_text(encoding="utf-8"))
 
 
 def pytest_addoption(parser):

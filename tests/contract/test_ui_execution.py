@@ -32,11 +32,11 @@ class Backend:
         return [("analysis", b'{"elements":[]}', "application/json")]
 
 
-@pytest.fixture
-def context(tmp_path):
+@pytest.fixture(params=[2, 4, 5])
+def context(tmp_path, request):
     backend = Backend()
     service = PipelineService(tmp_path, backends={"ui.analyze": backend})
-    migrate_ui_ledger(service.ledger.path, writers_stopped=True)
+    migrate_ui_ledger(service.ledger.path, writers_stopped=True, target_version=request.param)
     ref = service.artifacts.put("ui-test", "intake", b"frozen-input", role="original", media_type="image/png")
     request = UIAnalysisRequest(
         input={"kind": "manual", "inputs": [ref]},

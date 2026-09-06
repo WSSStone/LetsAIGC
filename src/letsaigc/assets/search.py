@@ -218,9 +218,16 @@ def normalize_tavily(payload, *, scope_id, observed_at):
     usage, limit = _count(account.get("plan_usage")), _count(account.get("plan_limit"))
     key_usage, key_limit = _count(key.get("usage")), _count(key.get("limit"))
     plan = max(0, limit - usage) if usage is not None and limit is not None else None
-    # Zero/null key limits have no verified unlimited meaning in this contract.
+    # Official Usage schema: an explicit null means unlimited; missing/zero remain unknown.
+    # https://docs.tavily.com/documentation/api-reference/endpoint/usage.md
+    unlimited_key = "limit" in key and key["limit"] is None and key_usage is not None
     key_remaining = max(0, key_limit - key_usage) if key_usage is not None and key_limit else None
-    remaining = min(plan, key_remaining) if plan is not None and key_remaining is not None else 0 if plan == 0 else None
+    if unlimited_key:
+        remaining = plan
+    else:
+        remaining = (
+            min(plan, key_remaining) if plan is not None and key_remaining is not None else 0 if plan == 0 else None
+        )
     return QuotaObservation(
         provider="tavily",
         scope_id=scope_id,
