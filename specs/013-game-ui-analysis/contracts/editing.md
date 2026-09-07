@@ -1,6 +1,6 @@
 # T019 编辑与父子边界合同
 
-当前实施状态（2026-09-06）：T020 DTO、v5父子账本与静态登记已通过离线验收；CLI选择与GPU执行仍待T021及后续任务。T019原先20项预期失败现只剩3项T021 CLI门禁。
+当前实施状态（2026-09-06）：T020—T023、T025—T026已通过离线验收；T024已准备Windows专用锁、受限固定样本入口及独立v5验收账本，真实GPU执行仍须消费该子计划的精确批准。T028的编辑Temporal工作流仍未接线。
 
 本增量是先行合同，不交付 GPU 编辑运行时。T020 实现 DTO、父子账本与登记，T021 实现选择入口，T025/T026 实现 mask 像素与编译，T028 接线工作流。原 T003 批准拒绝、重复受理、未知费用、单任务预算矩阵继续复用，不复制到每个 provider。
 
@@ -35,7 +35,7 @@ ImageMaskBinding 的 image_ref 是准备后的 image 角色，canonical_ref 保�
 
 ## T020 先行内部服务边界
 
-测试约定 `PipelineService.ui_child_plan(task_id, *, parent_task_id, purpose, source_ids, request_ref, selection_ref, selection_revision, budget)` 返回冻结 PipelinePlan，purpose 为 segmentation 或 inpaint。它只进行可信登记，不提交 provider、不消费批准。父级 selection_ref 需已验证/在子作用域重登记；request_ref 已在子作用域保存。测试的 request 工件用于父子接入与归属边界；模型安全加载及请求 provider 合同仍在 T022–T026。
+`PipelineService.ui_child_plan(task_id, *, parent_task_id, purpose, source_ids, request_ref, selection_ref, selection_revision, budget)` 返回冻结 PipelinePlan，purpose 为 segmentation 或 inpaint。它只进行可信登记，不提交 provider、不消费批准。父级 selection_ref 需已验证/在子作用域重登记；request_ref 已在子作用域保存。只有显式注册 `ui.segment` 后端、消费精确子批准并取得 `local-gpu` 所有权后，公共 submit/observe/collect 才可调用回环SAM服务；未注册时继续返回 `capability_not_ready`。T024受限入口不接线T028编辑Workflow，也不启用Comfy补图。
 
 继续复用可信 `approve` + `Ledger.consume_approval`；消费精确 child 批准时在单个事务中激活该候选版本并禁用旧待执行 child。`Ledger.usage(task_id, include_children=True)` 读取根组，默认省略该参数时保留旧单任务行为。内部 API 名称如在实现时调整，须同步先行用例及本合同，不可删除边界断言来获得通过。
 
@@ -49,7 +49,7 @@ ImageMaskBinding 的 image_ref 是准备后的 image 角色，canonical_ref 保�
 | 新 child、新 mask、同源修订 | 消费沿同一根/源/编辑链累计；max_revisions、VLM 4 次、OCR 重读 2 次及补图修订 2 次不重置，根预算可更严 |
 | 根取消 / 预留与提交竞争 | 根提交门禁先关闭，已准备 child 也不能 begin_submit；外部 I/O 在事务外 |
 
-`test_ui_child_approvals.py` 只使用本地账本和合成工件，不连接 SAM/Comfy。T020 的迁移/并发事务测试和 T028 的默认提案→批准/候选覆盖/真实 Workflow 接线必须补齐；不能把本文件当作已经通过的端到端验收。
+`test_ui_child_approvals.py` 只使用本地账本和合成工件，不连接 SAM/Comfy。`test_ui_segmentation_runtime.py` 默认只读已明确选择的现场证据，pytest不会启动模型或签发批准。T028 的默认提案→批准/候选覆盖/真实 Workflow 接线仍须补齐；T024固定开发样本通过也不能替代编辑端到端或正式质量验收。
 
 ## 测试门禁
 

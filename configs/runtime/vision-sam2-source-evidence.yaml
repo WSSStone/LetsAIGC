@@ -1,11 +1,16 @@
 schema_version: 1
-status: pending_verification
+status: verified
 captured_at: "2026-09-06"
 model:
   repo: facebook/sam2.1-hiera-large
   revision: 665f8e2ad61cf5f53d65644ff27c8ee525124610
   revision_source: https://huggingface.co/facebook/sam2.1-hiera-large/tree/665f8e2ad61cf5f53d65644ff27c8ee525124610
-  license_source: https://huggingface.co/facebook/sam2.1-hiera-large/blob/665f8e2ad61cf5f53d65644ff27c8ee525124610/LICENSE
+  license:
+    id: Apache-2.0
+    status: verified
+    source: https://huggingface.co/facebook/sam2.1-hiera-large/blob/665f8e2ad61cf5f53d65644ff27c8ee525124610/README.md
+    sha256: d6f74ced558e110bf542a915cac9728c6e5a7144b738f10bef5090d1cdb2db5d
+    evidence: fixed-revision-model-card-metadata
   files_observed:
     - config.json
     - preprocessor_config.json
@@ -19,14 +24,20 @@ model:
     sha256: dc407dce21301fd94abb395c5099b4f2c455fdc8a8f261ac3d0ea6d4cd197230
     status: observed_official_metadata
   processor_companion_hashes:
-    status: pending_verification
-    note: "Official pages establish the required files; local SHA-256 values are not filled until a controlled snapshot is verified."
+    status: verified
+    files:
+      config.json: 00446988cf4d617118d2d347eabe2c46aebed744628facdd540508be30b69ec3
+      preprocessor_config.json: 6ebf229ee259368ce4a8d4f2fe893a72b053023710853e257253939e601f583d
+      processor_config.json: f8a68e865cfad115c1c2763f3d93eca7b1c622da06da2a9273eb437fb2389b6d
 preprocessing:
   source: https://huggingface.co/facebook/sam2.1-hiera-large/blob/665f8e2ad61cf5f53d65644ff27c8ee525124610/preprocessor_config.json
   processor_documentation: https://huggingface.co/docs/transformers/v4.57.6/en/model_doc/sam2
   transformers_processor_source: https://raw.githubusercontent.com/huggingface/transformers/v4.57.6/src/transformers/models/sam2/processing_sam2.py
   observed:
+    processor: Sam2Processor
+    image_processor: Sam2ImageProcessorFast
     default_to_square: true
     size: {height: 1024, width: 1024}
     do_pad: null
     target_size: 1024
+    mapping: anisotropic_square_resize

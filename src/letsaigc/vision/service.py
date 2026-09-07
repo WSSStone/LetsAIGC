@@ -9,7 +9,7 @@ import threading
 import time
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from uuid import uuid4
 
 from pydantic import TypeAdapter
@@ -21,6 +21,20 @@ from ..schemas.pipeline import ArtifactRef, Identifier, canonical_json, digest
 from .base import OCRJob, SAMJob, verify_permit, verify_sam_permit
 
 LOGGER = logging.getLogger(__name__)
+
+
+def validation_runtime_paths(root: Path, value: str) -> tuple[Path, Path]:
+    """Resolve an explicit T024-style local validation root without arbitrary writes."""
+
+    windows = PureWindowsPath(value)
+    relative = Path(value.replace("\\", "/"))
+    if windows.drive or windows.root or relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise PipelineError("unsafe_path", "Validation root must be relative and local")
+    base = (root / ".local/validation/ui-analysis").resolve()
+    target = (base / relative).resolve()
+    if not target.is_relative_to(base):
+        raise PipelineError("unsafe_path", "Validation root escapes local UI evidence")
+    return target / "artifacts", target / "provider"
 
 
 def configure_paddlex_cache(root: Path, relative: str, *, environment=None) -> Path:
@@ -252,6 +266,9 @@ class VisionApplication:
                 }
                 if self.capability == "segmentation":
                     health["loader_ready"] = loader_ready
+                    release_metrics = getattr(self.engine, "release_metrics", None)
+                    if isinstance(release_metrics, dict):
+                        health["release_metrics"] = release_metrics
                 return 200, health
             task_id = (
                 None
@@ -307,21 +324,35 @@ class VisionApplication:
                 with self._lock:
                     if self.jobs.busy():
                         raise PipelineError("resource_busy")
+                    released_cuda_allocated_bytes = None
+                    release_metrics = None
                     if self.engine:
                         try:
                             acknowledgement = self.engine.release()
+                            released_cuda_allocated_bytes = getattr(
+                                self.engine, "released_cuda_allocated_bytes", None
+                            )
+                            release_metrics = getattr(self.engine, "release_metrics", None)
                         except Exception:
                             # A provider-side release exception leaves GPU
                             # ownership uncertain; keep the engine reference
                             # and expose the stable boundary error.
                             acknowledgement = None
                         if self.capability == "segmentation" and acknowledgement is not True:
-                            raise PipelineError("resource_release_unknown")
+                            response = {"error_code": "resource_release_unknown"}
+                            if isinstance(release_metrics, dict):
+                                response["release_metrics"] = release_metrics
+                            return 409, response
                         self.engine = None
-                return 200, {
+                response = {
                     "released": True,
                     "device": "cpu" if self.capability == "ocr" else "cuda",
                 }
+                if released_cuda_allocated_bytes is not None:
+                    response["cuda_allocated_bytes"] = released_cuda_allocated_bytes
+                if isinstance(release_metrics, dict):
+                    response["release_metrics"] = release_metrics
+                return 200, response
             else:
                 raise PipelineError("not_found")
             return (200, result) if result else (404, {"error_code": "not_found"})
@@ -342,12 +373,16 @@ class VisionApplication:
                 data, role, actual = canonical_json(value).encode(), "texts", None
             else:
                 started = time.perf_counter()
+                startup_seconds = getattr(self.engine, "consume_startup_seconds", lambda: 0.0)()
                 value = self.engine.segment(self.artifacts, job)
                 if isinstance(value, bytes):
                     data, role = value, "segmentation"
                 else:
                     data, role = canonical_json(value).encode(), "segmentation"
-                actual = (0.0, max(0.0, (time.perf_counter() - started) / 60.0))
+                actual = (
+                    0.0,
+                    max(0.0, (startup_seconds + time.perf_counter() - started) / 60.0),
+                )
             if len(data) > 8 * 1024**2:
                 raise PipelineError("output_limit")
             self.jobs.finish(request_id, data=data, role=role, actual=actual)
@@ -404,6 +439,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--capability", choices=["ocr", "segmentation"], required=True)
     parser.add_argument("--port", type=int, default=8766)
+    parser.add_argument(
+        "--validation-root",
+        help="Relative directory below .local/validation/ui-analysis for an isolated acceptance ledger",
+    )
     args = parser.parse_args()
     root = find_repo_root()
     if args.capability == "ocr":
@@ -413,6 +452,12 @@ def main():
         from .sam_loader import SAM2Engine, load_sam_settings
 
         config, lock = load_sam_settings(root)
+    if args.validation_root:
+        if args.capability != "segmentation":
+            parser.error("Validation roots are supported only for segmentation acceptance")
+        artifact_root, job_root = validation_runtime_paths(root, args.validation_root)
+    else:
+        artifact_root, job_root = root / config["artifact_root"], root / config["job_root"]
     token = get_setting(config["token_env"], "")
     key = get_setting(config["signing_key_env"], "")
     if not token or len(key) < 32:
@@ -422,8 +467,8 @@ def main():
     except PipelineError:
         engine = None
     application = VisionApplication(
-        root / config["job_root"],
-        ArtifactStore(root / config["artifact_root"]),
+        job_root,
+        ArtifactStore(artifact_root),
         token=token,
         signing_key=key,
         engine=engine,

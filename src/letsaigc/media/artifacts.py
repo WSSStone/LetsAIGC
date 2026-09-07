@@ -18,7 +18,10 @@ def _safe_output_path(output_root: Path, subfolder: str, filename: str) -> Path:
     # ComfyUI records can come from Windows even when this client runs on POSIX.
     parts = [Path(value.replace("\\", "/")) for value in (subfolder, filename)]
     if not filename or any(
-        part.is_absolute() or ".." in part.parts or PureWindowsPath(value).drive
+        part.is_absolute()
+        or PureWindowsPath(value).root
+        or ".." in part.parts
+        or PureWindowsPath(value).drive
         for value, part in zip((subfolder, filename), parts, strict=True)
     ):
         raise ValidationError("ComfyUI output must use a safe relative path")

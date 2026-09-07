@@ -528,12 +528,11 @@ class PipelineService:
         plan = self.checked_plan(plan.task_id, plan.fingerprint)
         if is_child_plan(plan):
             validate_child_plan(plan)
-            # T020 registers and accounts for children; provider submission is
-            # intentionally owned by the later SAM/Comfy tasks.
-            raise PipelineError("capability_not_ready", "UI child providers are not configured")
-        request = validate_ui_registration(plan, self.artifacts)
-        if request.output_mode != "parse":
-            raise PipelineError("capability_not_ready", "UI editing is not available in the single-image preview")
+            request = None
+        else:
+            request = validate_ui_registration(plan, self.artifacts)
+            if request.output_mode != "parse":
+                raise PipelineError("capability_not_ready", "UI editing is not available in the single-image preview")
         if binding.outputs:
             raise PipelineError("invalid_step", "A submission cannot supply its own result references")
         for ref in [*binding.inputs, *([binding.parameters_ref] if binding.parameters_ref else [])]:

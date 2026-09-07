@@ -1,5 +1,7 @@
 # Windows T024 交接提示词
 
+2026-09-07 状态：Windows T024 已完成，提交 `72bde6ab00224a806d5afbf24a12bf750d232b83` 已纳入开发分支的集成流程。下文保留为历史交接，不应再次执行 T024 或复用旧批准；当前任务状态以 tasks.md 为准。
+
 在 Windows 的 Codex 中选择 **gpt-5.6-sol / xhigh**，打开 LetsAIGC 仓库，再粘贴下方提示词。提示词本身不会切换当前 Agent 的模型。
 
 ```text

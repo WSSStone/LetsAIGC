@@ -2,7 +2,7 @@
 
 **Feature**: 013-game-ui-analysis | **Date**: 2026-09-04 | **Branch**: dev-game-ui  
 **Baseline**: `7b91c34deb23064aaa6b492ce105956a59b47b71`  
-**状态**：50项中T001—T023、T025—T027与T043—T050共34项已完成；其余16项仍待实施。11项[LIVE]中T010、T017、T018、T027、T049已验收，其余6项未验收。所有环境命令继续使用conda run；历史mamba阻断、旧失败与unknown证据保留。
+**状态**：50项中T001—T027与T043—T050共35项已完成；其余15项仍待实施。11项[LIVE]中T010、T017、T018、T024、T027、T049已验收，其余5项未验收。所有环境命令继续使用conda run；历史mamba阻断、旧失败与unknown证据保留。
 
 ## 执行约定
 
@@ -71,7 +71,7 @@
 - [X] T021 [US3] 实现分析授权内的区域提案和预览：接入--reviewed-task/--review-revision入口，冻结T048的确认版本，不重跑该输入OCR/VLM；保留显式原自动布局路径。复用VLM布局/目标，不增加免费规划次数；确定性校验bbox/元素、保留区域及来源。明确方案直接形成待批准准备信息；含混时列候选编号，ui select --candidate与--selection二选一且登记零模型调用。引用/hash由可信入口补齐，普通用户不手填机器合同。 文件：`C:/Programs/LetsAIGC/src/letsaigc/agent/ui_analyzer.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/cli.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/selection.py`、`C:/Programs/LetsAIGC/tests/unit/test_ui_selection.py`。（依赖：T020）
 - [X] T022 [US2] 先写SAM环境/安全loader/hash/预处理映射合同，再准备独立SAM锁结构和服务GPU执行凭证/卸载边界；仅使用固定官方safetensors和本地文件模式，不自动下载或.pt回退。为服务适配增加一次响应丢失恢复边界测试，不复制公共账本矩阵。 文件：`C:/Programs/LetsAIGC/tests/contract/test_ui_segmentation.py`、`C:/Programs/LetsAIGC/environment/vision-segmentation.yml`、`C:/Programs/LetsAIGC/configs/runtime/vision.lock.yaml`、`C:/Programs/LetsAIGC/configs/runtime/vision.yaml`、`C:/Programs/LetsAIGC/src/letsaigc/vision/service.py`。（依赖：T020）
 - [X] T023 [US2] 在先行领域测试后实现SAM提示/轮廓回映、估计alpha和字形颜色/连通域细化，保留原始切片、mask、alpha和glyph角色及低确定性。每图提示≤64，绑定具体selection/version/hash及GPU批准；可通过受限固定样本入口验证，不对Agent暴露执行工具。 文件：`C:/Programs/LetsAIGC/tests/unit/test_ui_text_assets.py`、`C:/Programs/LetsAIGC/tests/unit/test_ui_segmentation_assets.py`、`C:/Programs/LetsAIGC/src/letsaigc/vision/segmentation.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/text_assets.py`。（依赖：T021、T022）
-- [ ] T024 [US2] [LIVE] 用固定样本和具体批准验证真实SAM加载、mask/alpha/glyph角色、canonical映射、GPU释放及实际用量；记录分割开发测量。缺能力保持未验收，正式阈值在最终开发集阶段冻结，不阻塞后续编辑接线。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_segmentation_runtime.py`、`C:/Programs/LetsAIGC/.local/validation/ui-analysis/segmentation-runtime.json`。（依赖：T023）
+- [X] T024 [US2] [LIVE] 用固定样本和具体批准验证真实SAM加载、mask/alpha/glyph角色、canonical映射、GPU释放及实际用量；记录分割开发测量。缺能力保持未验收，正式阈值在最终开发集阶段冻结，不阻塞后续编辑接线。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_segmentation_runtime.py`、`C:/Programs/LetsAIGC/.local/validation/ui-analysis/segmentation-runtime.json`。（依赖：T023）
 - [X] T025 [US3] 先写原生mask编译/四工件、旧T2I/I2I金样和合成像素合同：配对输入、极性/通道/变换、扩张羽化裁到ROI并避开keep、空mask零生成、尺寸错误拒绝和区外逐像素相同。 文件：`C:/Programs/LetsAIGC/tests/contract/test_ui_inpaint_compile.py`、`C:/Programs/LetsAIGC/tests/unit/test_ui_inpaint_pixels.py`。（依赖：T020）
 - [X] T026 [US3] 实现MaskedGenerationPlan v2的编译分派及原生sdxl-inpaint UI/API图、工作流合同和recipe；旧v1字节/编译语义不变。实现冻结最终mask、回映及CPU精确合成，失败候选及模型/recipe/编译hash均入证据。 文件：`C:/Programs/LetsAIGC/src/letsaigc/workflows/compiler.py`、`C:/Programs/LetsAIGC/src/letsaigc/backends/comfy.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/inpaint.py`、`C:/Programs/LetsAIGC/configs/workflows/recipes/sdxl-inpaint.yaml`、`C:/Programs/LetsAIGC/workflows/ui/sdxl-inpaint.json`、`C:/Programs/LetsAIGC/workflows/api/sdxl-inpaint.json`、`C:/Programs/LetsAIGC/workflows/contracts/sdxl-inpaint.yaml`。（依赖：T025）
 - [X] T027 [US3] [LIVE] 只读核验锁定ComfyUI的object_info与原生节点/四工件，运行旧编译金样和本地像素合同；不提交生成。缺已部署服务保留未完成，作为真实补图前能力门槛。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_inpaint_object_info.py`、`C:/Programs/LetsAIGC/.local/validation/ui-analysis/inpaint-object-info.json`。（依赖：T026）
@@ -723,3 +723,14 @@ T024只读准备检查显示本机Darwin arm64缺SAM模型目录，锁定CUDA环
 主代理完整回归：**574 passed、3 skipped、2 warnings，68.62秒**，含真实T027只读探测；ruff/diff通过。跳过仅既有真实GPU1项、Windows共享冲突2项。现场证据inpaint-object-info-2.json及后续编号保留在.local/validation/ui-analysis/；详细日志、主代理独立检查和账本对比在t027-macos-2026-09-06/。包版本清单SHA不等于全体wheel逐一验证；本轮结论仅为固定运行实例的节点能力，不是MPS/CUDA生成、SDXL模型或最终图像质量通过。
 
 T027已勾选，累计34/50。T024交Windows Sol xhigh执行，提示词见docs/windows-t024-agent-prompt-2026-09-06.md；T028及其余未完成LIVE不变。真实账本保持v4且本轮前后所有表SHA一致，历史unknown0.25USD和4个旧未执行测试计划保留。验收临时CPU服务收尾停止，环境与源码保留，可按docs/game-ui-analysis.md重新启动；本轮没有打开内置浏览器。
+
+
+### Windows T024 与 Mac T027 合并交接（2026-09-07）
+
+集成Windows提交`72bde6ab00224a806d5afbf24a12bf750d232b83`，保留Mac已完成的T027提交`a58f0fed4d66107c58085bd418e17e3bed25be85`。两边分别从共同基线推进一项，合并后T001—T027及T043—T050共35/50完成，LIVE共6/11完成。上文Windows交接中的“T027未完成/34项”是该分支当时状态，不能覆盖Mac已有验收。T028和24例正式质量验收仍未完成，本次不接线。
+
+T024验收结论承接用户报告和Windows提交记录：task `t024-win-sam-4b5153233490e413`，指纹`ba692fcb092a89882365741b2731729a07733dc76572f651f2d1d221857a25a4`，最终实际0USD/0.314051GPU分钟，provider受理一次，CUDA释放后allocated bytes为0。模型、隔离账本及真实证据没有迁入Mac；未重跑、重新批准或声称本机独立复验了真实SAM。T027的本机历史只读验收保留，本轮不启动其服务。
+
+集成仅修复三处跨平台验证兼容：包锁正例显式选择Windows平台；本地验收路径在所有平台一致拒绝Windows盘符、根路径和反斜杠遍历；LIVE测试遇到所选目录缺少SAM专用记录时明确skip，不拿Mac解析证据替代。Windows SAM加载/释放和受限验收流程保留，公共Mac账本不迁移、不新增操作。完整日志与账本对比见`.local/validation/ui-analysis/t024-integration-2026-09-07/`；初次两项失败记录保留。
+
+合并后Mac完整回归：**579 passed、5 skipped、2 warnings，66.52秒**；ruff和diff检查通过。跳过为真实GPU1项、未启用T027专用探测1项、缺Windows T024证据1项、Windows专用共享冲突2项。公共账本保持v4且所有表行数/SHA与集成前完全一致。

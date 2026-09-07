@@ -19,6 +19,8 @@ segmentation:
   artifact_root: .local/pipelines/artifacts
   job_root: .local/vision/segmentation/jobs
   lock: configs/runtime/vision.lock.yaml
+  platform_locks:
+    Windows-AMD64: configs/runtime/vision-sam2.windows-amd64.lock.yaml
   maximum_active_jobs: 1
   model_view_edge: 1024
   model_view_pad_to: 1

@@ -143,3 +143,28 @@ T024只读准备检查显示本机Darwin arm64缺SAM模型目录，锁定CUDA环
 主代理完整回归：**574 passed、3 skipped、2 warnings，68.62秒**，含真实T027只读探测；ruff/diff通过。跳过仅既有真实GPU1项、Windows共享冲突2项。现场证据inpaint-object-info-2.json及后续编号保留在.local/validation/ui-analysis/；详细日志、主代理独立检查和账本对比在t027-macos-2026-09-06/。包版本清单SHA不等于全体wheel逐一验证；本轮结论仅为固定运行实例的节点能力，不是MPS/CUDA生成、SDXL模型或最终图像质量通过。
 
 T027已勾选，累计34/50。T024交Windows Sol xhigh执行，提示词见docs/windows-t024-agent-prompt-2026-09-06.md；T028及其余未完成LIVE不变。真实账本保持v4且本轮前后所有表SHA一致，历史unknown0.25USD和4个旧未执行测试计划保留。验收临时CPU服务收尾停止，环境与源码保留，可按docs/game-ui-analysis.md重新启动；本轮没有打开内置浏览器。
+
+## Windows T024 真实 SAM 验收（2026-09-07）
+
+本段更新上文T024未验收的历史状态。Windows AMD64使用独立`letsaigc-vision-segmentation`环境：Python 3.12.14、Transformers 4.57.6、PyTorch 2.9.1+cu130、torchvision 0.24.1+cu130。平台覆盖锁记录官方Windows wheel及SHA，Linux公共锁保持不变。模型只从本地核验快照加载：`facebook/sam2.1-hiera-large@665f8e2ad61cf5f53d65644ff27c8ee525124610`，`model.safetensors` SHA-256为`dc407dce21301fd94abb395c5099b4f2c455fdc8a8f261ac3d0ea6d4cd197230`；同revision的processor配置、许可证和1024×1024预处理映射均已核实。运行时不下载模型，也不接受`.pt`/pickle回退。
+
+最终计划task为`t024-win-sam-4b5153233490e413`，完整指纹`ba692fcb092a89882365741b2731729a07733dc76572f651f2d1d221857a25a4`，批准上限0 USD、1 GPU分钟。operation `op-b03ea33efe6cd8f4aa0e1ac0f1afbf9f8c1c36088bc4b864`仅受理一次，恢复观察一次，实际结算0 USD、0.314051 GPU分钟。真实SAM产出了canonical坐标回映、原始矩形切片、轮廓mask、估计alpha和CPU估计字形资产；透明输入像素没有变得更不透明，SAM控件轮廓未冒充字形。模型释放确认`cuda_allocated_bytes=0`，服务随后关闭。
+
+释放修复清除了固定Transformers版本中方法闭包持有的LRU张量缓存，并调用PyTorch提供的cuBLAS工作区清理后再回收CUDA缓存。此前真实推理成功但释放返回`resource_release_unknown`的尝试及实耗均保留在`.local/validation/ui-analysis/t024-windows/attempt-*-release-unknown.json`和对应隔离账本中；含最终成功运行的累计实际GPU时间为3.483205分钟，没有清理或改写失败证据。
+
+主要证据为`.local/validation/ui-analysis/t024-windows/segmentation-runtime.json`、`execution-audit.json`及兼容位置`.local/validation/ui-analysis/segmentation-runtime.json`。`tests/integration/test_ui_segmentation_runtime.py --ui-live`只读复核通过，不会再调用模型。固定输入是仓库合成HUD加透明像素探针，验收范围是T024开发运行时，不是商业UI、独立真值或24例正式质量验收。T024现已勾选，累计34/50；T027、T028和后续正式质量任务仍未完成。
+
+最终验证：T024定向合同/单元测试27 passed；只读LIVE证据测试1 passed；完整回归554 passed、22 skipped、3 warnings，用时137.30秒；`ruff check .`和`git diff --check`通过。两条Pillow弃用警告来自既有inpaint像素测试，另一条是仓库`.pytest_cache`无写权限，不影响测试结果。本轮未提交或推送Git。
+
+服务关闭后的`ui doctor`完成且没有模型调用：manual、VLM、Temporal就绪；segmentation因验收服务已关闭而报告未就绪。当前公共账本仍为v3而review要求v4，既有OCR服务模型摘要不匹配，两家搜索计价状态在本机配置中未核实；inpaint与batch仍未就绪。这些是下一阶段运行资源状态，不改写T024已保存的独立v5账本和真实GPU证据，也不在本轮处理T027/T028。
+
+
+## Windows T024 与 Mac T027 合并交接（2026-09-07）
+
+集成Windows提交`72bde6ab00224a806d5afbf24a12bf750d232b83`，保留Mac已完成的T027提交`a58f0fed4d66107c58085bd418e17e3bed25be85`。两边分别从共同基线推进一项，合并后T001—T027及T043—T050共35/50完成，LIVE共6/11完成。上文Windows交接中的“T027未完成/34项”是该分支当时状态，不能覆盖Mac已有验收。T028和24例正式质量验收仍未完成，本次不接线。
+
+T024验收结论承接用户报告和Windows提交记录：task `t024-win-sam-4b5153233490e413`，指纹`ba692fcb092a89882365741b2731729a07733dc76572f651f2d1d221857a25a4`，最终实际0USD/0.314051GPU分钟，provider受理一次，CUDA释放后allocated bytes为0。模型、隔离账本及真实证据没有迁入Mac；未重跑、重新批准或声称本机独立复验了真实SAM。T027的本机历史只读验收保留，本轮不启动其服务。
+
+集成仅修复三处跨平台验证兼容：包锁正例显式选择Windows平台；本地验收路径在所有平台一致拒绝Windows盘符、根路径和反斜杠遍历；LIVE测试遇到所选目录缺少SAM专用记录时明确skip，不拿Mac解析证据替代。Windows SAM加载/释放和受限验收流程保留，公共Mac账本不迁移、不新增操作。完整日志与账本对比见`.local/validation/ui-analysis/t024-integration-2026-09-07/`；初次两项失败记录保留。
+
+合并后Mac完整回归：**579 passed、5 skipped、2 warnings，66.52秒**；ruff和diff检查通过。跳过为真实GPU1项、未启用T027专用探测1项、缺Windows T024证据1项、Windows专用共享冲突2项。公共账本保持v4且所有表行数/SHA与集成前完全一致。
