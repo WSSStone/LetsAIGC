@@ -189,4 +189,10 @@ T029已勾选，累计37/50，LIVE仍6/11。使用gpt-5.6-luna/xhigh子代理实
 
 最终完整回归684 passed、5 skipped、2条既有Pillow告警（84.45秒），ruff及git diff --check通过。包含真实本地Temporal恢复测试和已有LIVE证据只读核对；模型均为替身，不是T030真实效果验收。首轮683 passed日志保留。证据位于.local/validation/ui-analysis/t029-2026-09-07/，实际账本仍v4，14张表计数/hash与T028前一致；未迁移、未新增真实搜索/OCR/VLM/GPU调用、未使用内置浏览器。
 
-下一步T030：本机manual/review/VLM元数据就绪，OCR/Temporal服务已停，SAM及Comfy CUDA模型/服务未就绪。须先把本轮代码提交推送供Windows同步，在Windows核对现有环境和来源后准备新的真实编辑计划；保留T024结果及Windows本地证据，不重复T024、不复用旧批准。现有Mac v4账本不得隐式迁移。真实局部模型复核、商业截图拆解、两种背景补图、受理后恢复及24例正式质量仍未验收；T031及以后不提前实施。本轮实现尚未提交推送。
+下一步T030：本机manual/review/VLM元数据就绪，OCR/Temporal服务已停，SAM及Comfy CUDA模型/服务未就绪。须先把本轮代码提交推送供Windows同步，在Windows核对现有环境和来源后准备新的真实编辑计划；保留T024结果及Windows本地证据，不重复T024、不复用旧批准。现有Mac v4账本不得隐式迁移。真实局部模型复核、商业截图拆解、两种背景补图、受理后恢复及24例正式质量仍未验收；T031及以后不提前实施。当时实现尚未提交推送，后续交接见下文。
+
+### 2026-09-07 Windows T030 交接准备
+
+T028/T029实现已提交为`2a4907495efa63319f900531583e9b8e9dad98bf`。用户已授权提交、推送`dev-game-ui`并准备Windows提示词；执行说明见[Windows T030 Agent提示词](windows-t030-agent-prompt-2026-09-07.md)，建议沿用用户指定的`gpt-5.6-sol / xhigh`。
+
+本次交付不新增真实模型调用或迁移本地账本。进度保持37/50，LIVE保持6/11，T030仍未完成。Windows先同步代码、检查本地资源和输入，再准备实际任务及新指纹批准；T030现场证据格式和只读复核测试也属于待完成工作。代码验证沿用上述684 passed、5 skipped及ruff结果，后续交接文档变更另经diff检查。
