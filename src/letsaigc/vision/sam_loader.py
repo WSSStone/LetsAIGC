@@ -6,8 +6,12 @@ interpretation and mask/alpha/glyph derivation are implemented by T023.
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import importlib.metadata
+import platform
+import time
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +21,18 @@ from ..paths import find_repo_root
 from ..pipelines.errors import PipelineError
 
 
+def _merge_lock(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    merged = deepcopy(base)
+    for key, value in overlay.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _merge_lock(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
 def load_sam_settings(root: Path | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Load the segmentation endpoint and its platform-independent lock."""
+    """Load the SAM endpoint, common lock and an exact current-platform overlay."""
 
     root = root or find_repo_root()
     runtime = yaml.safe_load((root / "configs/runtime/vision.yaml").read_text(encoding="utf-8"))
@@ -27,6 +41,18 @@ def load_sam_settings(root: Path | None = None) -> tuple[dict[str, Any], dict[st
     lock = yaml.safe_load(lock_path.read_text(encoding="utf-8"))
     if lock.get("schema_version") != 1 or lock.get("protocol_version") != 1:
         raise PipelineError("model_not_ready", "Unsupported SAM runtime lock")
+    platform_key = f"{platform.system()}-{platform.machine()}"
+    overlay_name = config.get("platform_locks", {}).get(platform_key)
+    if overlay_name:
+        overlay = yaml.safe_load((root / overlay_name).read_text(encoding="utf-8"))
+        if (
+            overlay.get("schema_version") != 1
+            or overlay.get("protocol_version") != 1
+            or overlay.get("platform") != platform_key
+            or not isinstance(overlay.get("segmentation"), dict)
+        ):
+            raise PipelineError("model_not_ready", "Unsupported SAM platform lock")
+        lock = _merge_lock(lock, overlay)
     return config, lock
 
 
@@ -102,8 +128,10 @@ def validate_sam_preprocessing(lock: dict[str, Any]) -> None:
 
     try:
         preprocessing = lock["segmentation"]["model"]["preprocessing"]
-        if preprocessing.get("processor") != "Sam2ImageProcessor":
+        if preprocessing.get("processor") != "Sam2Processor":
             raise ValueError("Unexpected SAM processor")
+        if preprocessing.get("image_processor") != "Sam2ImageProcessorFast":
+            raise ValueError("Unexpected SAM image processor")
         if preprocessing.get("size") != {"height": 1024, "width": 1024}:
             raise ValueError("SAM processor size is not the locked 1024 square")
         if preprocessing.get("default_to_square") is not True:
@@ -128,6 +156,10 @@ def validate_loaded_sam_preprocessing(processor: Any, lock: dict[str, Any]) -> N
         validate_sam_preprocessing(lock)
         expected = lock["segmentation"]["model"]["preprocessing"]
         image_processor = processor.image_processor
+        wrapper_class = getattr(processor, "processor_class", type(processor).__name__)
+        image_class = getattr(image_processor, "image_processor_type", type(image_processor).__name__)
+        if wrapper_class != expected["processor"] or image_class != expected["image_processor"]:
+            raise ValueError("SAM loaded processor class drift")
         actual_size = image_processor.size
         if actual_size != expected["size"]:
             raise ValueError("SAM loaded processor size drift")
@@ -199,6 +231,63 @@ def prepare_sam_view(width: int, height: int, *, max_edge: int = 1024, pad_to: i
     }
 
 
+def _clear_model_runtime_caches(model: Any) -> int:
+    """Clear hidden method LRU caches that may retain CUDA tensors.
+
+    Transformers 4.57.6 wraps the SAM2 sine-position forward method with
+    ``compile_compatible_method_lru_cache``. Its public wrapper does not
+    expose ``cache_clear``; the actual functools cache lives in a closure.
+    The isolated runtime owns one model, so clearing module-forward caches
+    during release cannot affect another request or model instance.
+    """
+
+    modules = getattr(model, "modules", None)
+    if not callable(modules):
+        return 0
+    cleared = 0
+    seen: set[int] = set()
+    for module in modules():
+        function = getattr(type(module), "forward", None)
+        candidates = [function]
+        for cell in getattr(function, "__closure__", ()) or ():
+            try:
+                candidates.append(cell.cell_contents)
+            except ValueError:
+                continue
+        for candidate in candidates:
+            clear = getattr(candidate, "cache_clear", None)
+            if callable(clear) and id(candidate) not in seen:
+                seen.add(id(candidate))
+                clear()
+                cleared += 1
+    return cleared
+
+
+def _cuda_tensor_inventory(torch_module: Any, *, limit: int = 64) -> list[dict[str, Any]]:
+    """Describe remaining CUDA tensors without exposing tensor contents."""
+
+    tensor_type = getattr(torch_module, "Tensor", None)
+    if not isinstance(tensor_type, type):
+        return []
+    found = []
+    for value in gc.get_objects():
+        try:
+            if not isinstance(value, tensor_type) or not value.is_cuda:
+                continue
+            found.append(
+                {
+                    "type": type(value).__name__,
+                    "shape": [int(item) for item in value.shape],
+                    "dtype": str(value.dtype),
+                    "bytes": int(value.numel() * value.element_size()),
+                    "requires_grad": bool(value.requires_grad),
+                }
+            )
+        except Exception:
+            continue
+    return sorted(found, key=lambda item: item["bytes"], reverse=True)[:limit]
+
+
 class SAM2Engine:
     """Load the fixed Transformers SAM2 snapshot without remote fallback."""
 
@@ -209,6 +298,7 @@ class SAM2Engine:
     execution_ready = False
 
     def __init__(self, lock: dict[str, Any], root: Path):
+        started = time.perf_counter()
         self.lock = lock
         self.root = root
         validate_sam_preprocessing(lock)
@@ -264,6 +354,12 @@ class SAM2Engine:
             raise PipelineError("model_not_ready", "SAM local model loading failed") from None
         self.loader_ready = True
         self.execution_ready = True
+        self._startup_seconds = max(0.0, time.perf_counter() - started)
+
+    def consume_startup_seconds(self) -> float:
+        value = getattr(self, "_startup_seconds", 0.0)
+        self._startup_seconds = 0.0
+        return value
 
     def segment(self, store, job):
         """Run frozen SAM prompts and return a resumable asset bundle."""
@@ -276,14 +372,65 @@ class SAM2Engine:
 
     def release(self) -> bool:
         model = getattr(self, "model", None)
+        processor = getattr(self, "processor", None)
         self.model = None
         self.processor = None
         self.loader_ready = False
         self.execution_ready = False
-        if model is not None:
-            del model
+        self.release_metrics = {}
+        stage = "cuda_state"
         try:
-            self._torch.cuda.empty_cache()
-            return True
-        except Exception:
+            cuda = self._torch.cuda
+            self.release_metrics["initial_cuda_allocated_bytes"] = int(cuda.memory_allocated())
+            stage = "runtime_cache_clear"
+            self.released_runtime_caches = _clear_model_runtime_caches(model)
+            self.release_metrics["runtime_caches_cleared"] = self.released_runtime_caches
+            self.release_metrics["after_cache_clear_cuda_allocated_bytes"] = int(
+                cuda.memory_allocated()
+            )
+            # Move registered parameters and buffers off the device even if a
+            # library object cycle still references the model.  Then collect
+            # Python cycles before asking the CUDA allocator to release caches.
+            stage = "synchronize_before_cpu"
+            cuda.synchronize()
+            move = getattr(model, "to", None)
+            if callable(move):
+                stage = "model_to_cpu"
+                move("cpu")
+                stage = "synchronize_after_cpu"
+                cuda.synchronize()
+            self.release_metrics["after_model_to_cpu_cuda_allocated_bytes"] = int(
+                cuda.memory_allocated()
+            )
+            del model
+            del processor
+            stage = "python_gc"
+            gc.collect()
+            self.release_metrics["after_gc_cuda_allocated_bytes"] = int(cuda.memory_allocated())
+            stage = "cublas_workspace_clear"
+            clear_cublas = getattr(
+                getattr(self._torch, "_C", None), "_cuda_clearCublasWorkspaces", None
+            )
+            self.release_metrics["cublas_workspace_clear_available"] = callable(clear_cublas)
+            if callable(clear_cublas):
+                clear_cublas()
+                cuda.synchronize()
+            self.release_metrics["after_cublas_clear_cuda_allocated_bytes"] = int(
+                cuda.memory_allocated()
+            )
+            stage = "cuda_cache_clear"
+            cuda.empty_cache()
+            ipc_collect = getattr(cuda, "ipc_collect", None)
+            if callable(ipc_collect):
+                ipc_collect()
+            cuda.empty_cache()
+            self.released_cuda_allocated_bytes = int(cuda.memory_allocated())
+            self.release_metrics["final_cuda_allocated_bytes"] = self.released_cuda_allocated_bytes
+            if self.released_cuda_allocated_bytes:
+                self.release_metrics["remaining_cuda_tensors"] = _cuda_tensor_inventory(self._torch)
+            self.release_metrics["error_stage"] = None
+            return self.released_cuda_allocated_bytes == 0
+        except Exception as exc:
+            self.release_metrics["error_stage"] = stage
+            self.release_metrics["error_type"] = type(exc).__name__
             return False

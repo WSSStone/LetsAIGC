@@ -2,7 +2,7 @@
 
 **Feature**: 013-game-ui-analysis | **Date**: 2026-09-04 | **Branch**: dev-game-ui  
 **Baseline**: `7b91c34deb23064aaa6b492ce105956a59b47b71`  
-**状态**：50项中T001—T023、T025—T026与T043—T050共33项已完成；其余17项仍待实施。11项[LIVE]中T010、T017、T018、T049已验收，其余7项未验收。所有环境命令继续使用conda run；历史mamba阻断、旧失败与unknown证据保留。
+**状态**：50项中T001—T026与T043—T050共34项已完成；其余16项仍待实施。11项[LIVE]中T010、T017、T018、T024、T049已验收，其余6项未验收。所有环境命令继续使用conda run；历史mamba阻断、旧失败与unknown证据保留。
 
 ## 执行约定
 
@@ -71,7 +71,7 @@
 - [X] T021 [US3] 实现分析授权内的区域提案和预览：接入--reviewed-task/--review-revision入口，冻结T048的确认版本，不重跑该输入OCR/VLM；保留显式原自动布局路径。复用VLM布局/目标，不增加免费规划次数；确定性校验bbox/元素、保留区域及来源。明确方案直接形成待批准准备信息；含混时列候选编号，ui select --candidate与--selection二选一且登记零模型调用。引用/hash由可信入口补齐，普通用户不手填机器合同。 文件：`C:/Programs/LetsAIGC/src/letsaigc/agent/ui_analyzer.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/cli.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/selection.py`、`C:/Programs/LetsAIGC/tests/unit/test_ui_selection.py`。（依赖：T020）
 - [X] T022 [US2] 先写SAM环境/安全loader/hash/预处理映射合同，再准备独立SAM锁结构和服务GPU执行凭证/卸载边界；仅使用固定官方safetensors和本地文件模式，不自动下载或.pt回退。为服务适配增加一次响应丢失恢复边界测试，不复制公共账本矩阵。 文件：`C:/Programs/LetsAIGC/tests/contract/test_ui_segmentation.py`、`C:/Programs/LetsAIGC/environment/vision-segmentation.yml`、`C:/Programs/LetsAIGC/configs/runtime/vision.lock.yaml`、`C:/Programs/LetsAIGC/configs/runtime/vision.yaml`、`C:/Programs/LetsAIGC/src/letsaigc/vision/service.py`。（依赖：T020）
 - [X] T023 [US2] 在先行领域测试后实现SAM提示/轮廓回映、估计alpha和字形颜色/连通域细化，保留原始切片、mask、alpha和glyph角色及低确定性。每图提示≤64，绑定具体selection/version/hash及GPU批准；可通过受限固定样本入口验证，不对Agent暴露执行工具。 文件：`C:/Programs/LetsAIGC/tests/unit/test_ui_text_assets.py`、`C:/Programs/LetsAIGC/tests/unit/test_ui_segmentation_assets.py`、`C:/Programs/LetsAIGC/src/letsaigc/vision/segmentation.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/text_assets.py`。（依赖：T021、T022）
-- [ ] T024 [US2] [LIVE] 用固定样本和具体批准验证真实SAM加载、mask/alpha/glyph角色、canonical映射、GPU释放及实际用量；记录分割开发测量。缺能力保持未验收，正式阈值在最终开发集阶段冻结，不阻塞后续编辑接线。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_segmentation_runtime.py`、`C:/Programs/LetsAIGC/.local/validation/ui-analysis/segmentation-runtime.json`。（依赖：T023）
+- [X] T024 [US2] [LIVE] 用固定样本和具体批准验证真实SAM加载、mask/alpha/glyph角色、canonical映射、GPU释放及实际用量；记录分割开发测量。缺能力保持未验收，正式阈值在最终开发集阶段冻结，不阻塞后续编辑接线。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_segmentation_runtime.py`、`C:/Programs/LetsAIGC/.local/validation/ui-analysis/segmentation-runtime.json`。（依赖：T023）
 - [X] T025 [US3] 先写原生mask编译/四工件、旧T2I/I2I金样和合成像素合同：配对输入、极性/通道/变换、扩张羽化裁到ROI并避开keep、空mask零生成、尺寸错误拒绝和区外逐像素相同。 文件：`C:/Programs/LetsAIGC/tests/contract/test_ui_inpaint_compile.py`、`C:/Programs/LetsAIGC/tests/unit/test_ui_inpaint_pixels.py`。（依赖：T020）
 - [X] T026 [US3] 实现MaskedGenerationPlan v2的编译分派及原生sdxl-inpaint UI/API图、工作流合同和recipe；旧v1字节/编译语义不变。实现冻结最终mask、回映及CPU精确合成，失败候选及模型/recipe/编译hash均入证据。 文件：`C:/Programs/LetsAIGC/src/letsaigc/workflows/compiler.py`、`C:/Programs/LetsAIGC/src/letsaigc/backends/comfy.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/inpaint.py`、`C:/Programs/LetsAIGC/configs/workflows/recipes/sdxl-inpaint.yaml`、`C:/Programs/LetsAIGC/workflows/ui/sdxl-inpaint.json`、`C:/Programs/LetsAIGC/workflows/api/sdxl-inpaint.json`、`C:/Programs/LetsAIGC/workflows/contracts/sdxl-inpaint.yaml`。（依赖：T025）
 - [ ] T027 [US3] [LIVE] 只读核验锁定ComfyUI的object_info与原生节点/四工件，运行旧编译金样和本地像素合同；不提交生成。缺已部署服务保留未完成，作为真实补图前能力门槛。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_inpaint_object_info.py`、`C:/Programs/LetsAIGC/.local/validation/ui-analysis/inpaint-object-info.json`。（依赖：T026）

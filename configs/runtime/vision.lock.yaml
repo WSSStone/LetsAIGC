@@ -58,9 +58,14 @@ segmentation:
   local_files_only: true
   trust_remote_code: false
   allowed_unused_keys: []
-  verification: pending_verification
+  verification: pending_platform_verification
   source_evidence: configs/runtime/vision-sam2-source-evidence.yaml
   packages:
+    httpx:
+      version: 0.28.1
+      wheel: httpx-0.28.1-py3-none-any.whl
+      wheel_sha256: d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad
+      source: https://pypi.org/project/httpx/0.28.1/
     transformers:
       version: 4.57.6
       wheel: transformers-4.57.6-py3-none-any.whl
@@ -85,19 +90,32 @@ segmentation:
     files:
       model.safetensors:
         sha256: dc407dce21301fd94abb395c5099b4f2c455fdc8a8f261ac3d0ea6d4cd197230
+        format: safetensors
+      config.json:
+        sha256: 00446988cf4d617118d2d347eabe2c46aebed744628facdd540508be30b69ec3
+        format: json
+      preprocessor_config.json:
+        sha256: 6ebf229ee259368ce4a8d4f2fe893a72b053023710853e257253939e601f583d
+        format: json
+      processor_config.json:
+        sha256: f8a68e865cfad115c1c2763f3d93eca7b1c622da06da2a9273eb437fb2389b6d
+        format: json
     required_processor_files:
       - config.json
       - preprocessor_config.json
       - processor_config.json
     preprocessing:
-      processor: Sam2ImageProcessor
+      processor: Sam2Processor
+      image_processor: Sam2ImageProcessorFast
       size: {height: 1024, width: 1024}
       default_to_square: true
       do_pad: null
       target_size: 1024
       source: https://huggingface.co/docs/transformers/v4.57.6/en/model_doc/sam2
-      verification: pending_verification
+      mapping: anisotropic_square_resize
+      verification: verified
     license:
       id: Apache-2.0
       status: verified
-      source: https://huggingface.co/facebook/sam2.1-hiera-large/blob/665f8e2ad61cf5f53d65644ff27c8ee525124610/LICENSE
+      source: https://huggingface.co/facebook/sam2.1-hiera-large/blob/665f8e2ad61cf5f53d65644ff27c8ee525124610/README.md
+      evidence_sha256: d6f74ced558e110bf542a915cac9728c6e5a7144b738f10bef5090d1cdb2db5d

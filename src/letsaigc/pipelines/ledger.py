@@ -441,14 +441,15 @@ class Ledger:
                 self._check_ui_binding(db, plan, step_id, revision, ui_binding, ui_request)
             elif child:
                 self._child_step_check(db, plan, step_id, revision, ui_binding)
+            old = db.execute("SELECT * FROM operations WHERE operation_id=?", (key,)).fetchone()
+            if old:
+                return self._record(old)
+            if child:
                 binding = self._child_binding(db, plan.task_id)
                 if binding["status"] != "active" or not binding["active"]:
                     if binding["status"] == "selection_superseded":
                         raise PipelineError("selection_superseded", "A newer selection replaced this child")
                     raise PipelineError("awaiting_approval", "The exact child selection is not active")
-            old = db.execute("SELECT * FROM operations WHERE operation_id=?", (key,)).fetchone()
-            if old:
-                return self._record(old)
             if plan.workflow_type == "ui_analysis" or child:
                 self._ui_gate(db, plan.task_id)
             if admission is not None:
@@ -842,7 +843,8 @@ class Ledger:
                 raise PipelineError("unknown_operation")
             task = db.execute("SELECT plan FROM tasks WHERE task_id=?", (row["task_id"],)).fetchone()
             plan = PipelinePlan.model_validate_json(task["plan"])
-            if plan.workflow_type != "ui_analysis":
+            child = self._is_child_workflow(plan.workflow_type)
+            if plan.workflow_type != "ui_analysis" and not child:
                 raise PipelineError("invalid_step", "UI settlement only applies to UI operations")
             if row["state"] in {"succeeded", "failed"}:
                 previous = json.loads(row["result"])
@@ -852,18 +854,22 @@ class Ledger:
                 if (row["actual_cost"], row["actual_gpu"], previous) != (actual_cost, actual_gpu, incoming):
                     raise PipelineError("settlement_conflict")
                 return self._record(row)
-            grouped_root = False
+            root_task_id = self._root_task_id(db, plan.task_id) if child else plan.task_id
+            grouped_root = child
             if db.execute("PRAGMA user_version").fetchone()[0] >= 5:
-                grouped_root = db.execute(
-                    "SELECT 1 FROM ui_budget_groups WHERE root_task_id=?", (plan.task_id,)
-                ).fetchone() is not None
+                grouped_root = (
+                    db.execute(
+                        "SELECT 1 FROM ui_budget_groups WHERE root_task_id=?", (root_task_id,)
+                    ).fetchone()
+                    is not None
+                )
             if grouped_root:
                 spent = db.execute(
                     """SELECT COALESCE(SUM(o.actual_cost),0) cost, COALESCE(SUM(o.actual_gpu),0) gpu
                     FROM operations o WHERE (o.task_id=? OR o.task_id IN
                         (SELECT task_id FROM ui_child_bindings WHERE root_task_id=?))
                       AND o.operation_id<>?""",
-                    (plan.task_id, plan.task_id, key),
+                    (root_task_id, root_task_id, key),
                 ).fetchone()
             else:
                 spent = db.execute(
@@ -872,11 +878,28 @@ class Ledger:
                     (plan.task_id, key),
                 ).fetchone()
             budget = plan.envelope.budget
+            root_budget = budget
+            if child:
+                root_plan_row = db.execute(
+                    "SELECT plan FROM tasks WHERE task_id=?", (root_task_id,)
+                ).fetchone()
+                if root_plan_row is None:
+                    raise PipelineError("unknown_parent")
+                root_budget = PipelinePlan.model_validate_json(root_plan_row["plan"]).envelope.budget
+                child_spent = db.execute(
+                    """SELECT COALESCE(SUM(actual_cost),0) cost, COALESCE(SUM(actual_gpu),0) gpu
+                    FROM operations WHERE task_id=? AND operation_id<>?""",
+                    (plan.task_id, key),
+                ).fetchone()
+            else:
+                child_spent = spent
             exceeded = (
                 actual_cost > units(budget.max_iteration_cost_usd, limit=True)
                 or actual_gpu > units(budget.max_iteration_gpu_minutes, limit=True)
-                or spent["cost"] + actual_cost > units(budget.max_total_cost_usd, limit=True)
-                or spent["gpu"] + actual_gpu > units(budget.max_total_gpu_minutes, limit=True)
+                or child_spent["cost"] + actual_cost > units(budget.max_total_cost_usd, limit=True)
+                or child_spent["gpu"] + actual_gpu > units(budget.max_total_gpu_minutes, limit=True)
+                or spent["cost"] + actual_cost > units(root_budget.max_total_cost_usd, limit=True)
+                or spent["gpu"] + actual_gpu > units(root_budget.max_total_gpu_minutes, limit=True)
             )
             adjusted = actual_cost > row["reserved_cost"] or actual_gpu > row["reserved_gpu"]
             verdict = "budget_exceeded" if exceeded else "reservation_adjusted" if adjusted else "within_budget"
@@ -902,7 +925,7 @@ class Ledger:
                 db.execute(
                     "UPDATE ui_budget_groups SET submission_gate='closed',stop_reason='budget_exceeded' "
                     "WHERE root_task_id=?",
-                    (plan.task_id,),
+                    (root_task_id,),
                 )
             db.execute(
                 "UPDATE ui_step_bindings SET outputs=? WHERE task_id=? AND step_id=? AND revision=?",
@@ -920,6 +943,13 @@ class Ledger:
                         "UPDATE quota_reservations SET units=?,state='settled' WHERE operation_id=?", (quota_units, key)
                     )
                 db.execute("UPDATE quota_probes SET state='settled' WHERE operation_id=?", (key,))
+            if child:
+                terminal_state = "failed" if failed or exceeded else "succeeded"
+                self._sync_charge(db, key, terminal_state)
+                db.execute(
+                    "UPDATE ui_child_bindings SET status='completed',active=0 WHERE task_id=?",
+                    (plan.task_id,),
+                )
             db.execute("DELETE FROM resources WHERE operation_id=?", (key,))
             return self._record(db.execute("SELECT * FROM operations WHERE operation_id=?", (key,)).fetchone())
 

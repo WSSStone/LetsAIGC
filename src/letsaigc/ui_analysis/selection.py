@@ -839,7 +839,7 @@ def _ref_for_file(store, task_id: str, path: Path, role: str, payload: Mapping[s
         value = ArtifactRef(
             task_id=task_id,
             artifact_id=f"asset-{hashlib.sha256((sha + role).encode()).hexdigest()[:48]}",
-            key=str(path.relative_to(store.root)),
+            key=path.relative_to(store.root).as_posix(),
             sha256=sha,
             size_bytes=len(data),
             media_type="application/json",

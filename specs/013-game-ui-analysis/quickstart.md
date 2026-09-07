@@ -113,11 +113,28 @@ conda run --no-capture-output -n letsaigc-core letsaigc ui inspect $taskId --loc
 
 ## 实施后：拆解与补图
 
-此阶段才准备SAM独立环境、已核实的模型hash/许可、SDXL和原生Comfy，迁移父子绑定与共享预算到v4。SAM入口在已部署的WSL环境运行，不直接使用Windows路径：
+此阶段才准备SAM独立环境、已核实的模型hash/许可、SDXL和原生Comfy；GPU父子绑定与共享预算使用独立v5账本。SAM在各平台使用对应锁：Linux保留公共锁，Windows AMD64使用官方CUDA wheel覆盖锁，运行时均只读取已核验的本地safetensors快照，不自动下载。普通服务入口为：
 
 ```bash
 conda run --no-capture-output -n letsaigc-vision-segmentation python -m letsaigc.vision.service --capability segmentation --port 8767
 ```
+
+T024现场验收使用独立本地目录，先在核心环境执行零推理规划并审阅生成的task ID、完整指纹、输入/预览、提示、模型快照以及单轮/总预算。只有取得该指纹的明确批准后，才消费批准并启动GPU服务；pytest只读完成后的证据，不会自行批准或推理：
+
+```powershell
+$plan = conda run --no-capture-output -n letsaigc-core python scripts/validate_ui_segmentation_runtime.py plan | ConvertFrom-Json
+$plan.task_id
+$plan.plan_fingerprint
+$plan.preview.path
+# 明确批准后才执行 approve，并随后启动独立服务与 execute。
+conda run --no-capture-output -n letsaigc-core python scripts/validate_ui_segmentation_runtime.py approve --fingerprint $plan.plan_fingerprint
+conda run --no-capture-output -n letsaigc-vision-segmentation python -m letsaigc.vision.service --capability segmentation --port 8767 --validation-root t024-windows/acceptance-state
+conda run --no-capture-output -n letsaigc-core python scripts/validate_ui_segmentation_runtime.py execute --fingerprint $plan.plan_fingerprint
+$env:LETSAIGC_UI_LIVE_EVIDENCE = '.local/validation/ui-analysis/t024-windows'
+conda run --no-capture-output -n letsaigc-core pytest tests/integration/test_ui_segmentation_runtime.py --ui-live
+```
+
+固定样本是带透明像素探针的开发用合成HUD，只验证真实SAM运行、坐标/角色/alpha不增、恢复、结算和释放；它不是商业UI或24例正式质量证据。
 
 单独准备含正GPU额度的edit-budget.yaml。decompose请求拆解；reconstruct必须选scene_background或map_surface。默认由Agent根据实际布局与目标生成区域、保留/移除对象和预览，无须先填写选择文件：
 
@@ -217,4 +234,4 @@ conda run --no-capture-output -n letsaigc-core ruff check .
 
 ## 2026-09-06 编辑准备实施状态
 
-T021—T023、T025—T026已完成，入口命令和候选选择见[编辑区域准备](../../docs/game-ui-analysis.md#编辑区域准备)。reviewed-task冻结确认版本，automatic-task显式沿用原自动布局，均不重跑OCR/VLM；核心环境无需Torch。当前编辑execute仍等待T028工作流接线，勿消费旧批准尝试执行。真实SAM/CUDA及锁定ComfyUI本机资源尚未就绪，T024/T027保持LIVE未验收。完整回归565 passed、4 skipped，不能替代真实GPU或最终质量验收。
+T021—T026已完成，入口命令和候选选择见[编辑区域准备](../../docs/game-ui-analysis.md#编辑区域准备)。reviewed-task冻结确认版本，automatic-task显式沿用原自动布局，均不重跑OCR/VLM；核心环境无需Torch。Windows T024已用固定开发样本、具体批准和真实SAM完成验收，实际0.314051 GPU分钟、0 USD，provider仅受理一次且释放后CUDA已分配字节为0；本地证据见`.local/validation/ui-analysis/t024-windows/segmentation-runtime.json`。当前编辑execute仍等待T028工作流接线，勿消费旧批准尝试执行。T027及完整质量验收保持未完成；历史Mac回归565 passed、4 skipped，不能替代Windows上的其他LIVE或最终质量验收。

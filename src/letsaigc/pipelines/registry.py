@@ -58,7 +58,7 @@ UI_OUTPUT_ROLES = {
     "ui.layout": {"layout", "quality_report"},
     "ui.crop": {"rect_crop", "overlay", "asset_index"},
     "ui.project": {"manifest"},
-    "ui.segment": {"mask", "alpha"},
+    "ui.segment": {"segmentation"},
     "ui.inpaint": {"image", "reconstruction", "output"},
 }
 WORKFLOWS["ui_analysis"] = ("letsaigc.ui.analysis.v1", "ui.analyze")

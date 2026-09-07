@@ -132,3 +132,17 @@ T024只读准备检查显示本机Darwin arm64缺SAM模型目录，锁定CUDA环
 账本审计：早期旧CLI测试未隔离本地存储，留下4个未批准、未执行的测试计划（tasks 12→16）。已修复为临时账本测试，保留这些记录及旧失败日志；其余所有表的行数与SHA均与本轮前一致。最终完整回归前后所有表SHA一致。真实账本仍v4，approvals 9、operations 63、ui_step_bindings 63，历史unknown 0.25USD保留。本轮没有迁移、模型下载或Git提交，也未打开新的内置浏览器。
 
 继续时以当前 tasks.md 为准，不重复上文已完成阶段；先处理真实运行资源准备与T028接线的依赖，再推进剩余任务。核心选择/人工校正不需要Torch；SAM仍是独立环境，不能把现有Mac环境复制后直接视为CUDA验收通过。
+
+## Windows T024 真实 SAM 验收（2026-09-07）
+
+本段更新上文T024未验收的历史状态。Windows AMD64使用独立`letsaigc-vision-segmentation`环境：Python 3.12.14、Transformers 4.57.6、PyTorch 2.9.1+cu130、torchvision 0.24.1+cu130。平台覆盖锁记录官方Windows wheel及SHA，Linux公共锁保持不变。模型只从本地核验快照加载：`facebook/sam2.1-hiera-large@665f8e2ad61cf5f53d65644ff27c8ee525124610`，`model.safetensors` SHA-256为`dc407dce21301fd94abb395c5099b4f2c455fdc8a8f261ac3d0ea6d4cd197230`；同revision的processor配置、许可证和1024×1024预处理映射均已核实。运行时不下载模型，也不接受`.pt`/pickle回退。
+
+最终计划task为`t024-win-sam-4b5153233490e413`，完整指纹`ba692fcb092a89882365741b2731729a07733dc76572f651f2d1d221857a25a4`，批准上限0 USD、1 GPU分钟。operation `op-b03ea33efe6cd8f4aa0e1ac0f1afbf9f8c1c36088bc4b864`仅受理一次，恢复观察一次，实际结算0 USD、0.314051 GPU分钟。真实SAM产出了canonical坐标回映、原始矩形切片、轮廓mask、估计alpha和CPU估计字形资产；透明输入像素没有变得更不透明，SAM控件轮廓未冒充字形。模型释放确认`cuda_allocated_bytes=0`，服务随后关闭。
+
+释放修复清除了固定Transformers版本中方法闭包持有的LRU张量缓存，并调用PyTorch提供的cuBLAS工作区清理后再回收CUDA缓存。此前真实推理成功但释放返回`resource_release_unknown`的尝试及实耗均保留在`.local/validation/ui-analysis/t024-windows/attempt-*-release-unknown.json`和对应隔离账本中；含最终成功运行的累计实际GPU时间为3.483205分钟，没有清理或改写失败证据。
+
+主要证据为`.local/validation/ui-analysis/t024-windows/segmentation-runtime.json`、`execution-audit.json`及兼容位置`.local/validation/ui-analysis/segmentation-runtime.json`。`tests/integration/test_ui_segmentation_runtime.py --ui-live`只读复核通过，不会再调用模型。固定输入是仓库合成HUD加透明像素探针，验收范围是T024开发运行时，不是商业UI、独立真值或24例正式质量验收。T024现已勾选，累计34/50；T027、T028和后续正式质量任务仍未完成。
+
+最终验证：T024定向合同/单元测试27 passed；只读LIVE证据测试1 passed；完整回归554 passed、22 skipped、3 warnings，用时137.30秒；`ruff check .`和`git diff --check`通过。两条Pillow弃用警告来自既有inpaint像素测试，另一条是仓库`.pytest_cache`无写权限，不影响测试结果。本轮未提交或推送Git。
+
+服务关闭后的`ui doctor`完成且没有模型调用：manual、VLM、Temporal就绪；segmentation因验收服务已关闭而报告未就绪。当前公共账本仍为v3而review要求v4，既有OCR服务模型摘要不匹配，两家搜索计价状态在本机配置中未核实；inpaint与batch仍未就绪。这些是下一阶段运行资源状态，不改写T024已保存的独立v5账本和真实GPU证据，也不在本轮处理T027/T028。

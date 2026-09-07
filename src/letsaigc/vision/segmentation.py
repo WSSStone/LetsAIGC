@@ -283,6 +283,7 @@ def _predict(engine: Any, image: Image.Image, prompt, size: tuple[int, int]) -> 
     if prompt.points:
         inputs["input_points"] = [[[[float(point[0]), float(point[1])] for point in prompt.points]]]
         inputs["input_labels"] = [[[1 for _ in prompt.points]]]
+    encoded = model_inputs = cuda_inputs = outputs = raw_masks = processed = None
     try:
         encoded = engine.processor(**inputs)
         model_inputs = dict(encoded.items()) if hasattr(encoded, "items") else dict(encoded)
@@ -291,21 +292,34 @@ def _predict(engine: Any, image: Image.Image, prompt, size: tuple[int, int]) -> 
         model_inputs["multimask_output"] = False
         inference_mode = getattr(getattr(engine, "_torch", None), "inference_mode", None)
         context = inference_mode() if callable(inference_mode) else nullcontext()
+        cuda_inputs = _move_to_cuda(model_inputs)
         with context:
-            outputs = engine.model(**_move_to_cuda(model_inputs))
+            outputs = engine.model(**cuda_inputs)
         raw_masks = _first_output(outputs, "pred_masks")
         if raw_masks is None:
             raise _error("segmentation_failed", "SAM returned no masks")
         post_process = getattr(engine.processor, "post_process_masks", None)
         if callable(post_process):
             original = [(size[0], size[1])] if original_sizes is None else original_sizes
-            processed = post_process(raw_masks, original_sizes=original, mask_threshold=0.0, binarize=False)
+            processed = post_process(
+                raw_masks,
+                original_sizes=original,
+                mask_threshold=0.0,
+                binarize=False,
+            )
             raw_masks = processed[0] if isinstance(processed, (list, tuple)) else processed
-        return _logit_mask(raw_masks, size), _confidence(outputs)
+        mask = _logit_mask(raw_masks, size)
+        confidence = _confidence(outputs)
+        return mask, confidence
     except PipelineError:
         raise
     except Exception:
         raise _error("segmentation_failed", "SAM inference failed") from None
+    finally:
+        # Do not leave CUDA BatchFeature inputs or model outputs reachable from
+        # a completed worker frame.  Model release separately moves registered
+        # parameters and buffers back to CPU before checking allocator state.
+        encoded = model_inputs = cuda_inputs = outputs = raw_masks = processed = None
 
 
 def _asset(

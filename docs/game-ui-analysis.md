@@ -153,4 +153,4 @@ conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui insp
 
 背景准备使用 `--mode reconstruct --target scene_background` 或 `map_surface`。没有明确目标时保留 `awaiting_selection`，不猜测整图背景。默认推荐保留文字；`--remove-text` 才把文字纳入移除提案。选择与预览均不是 GPU 批准。
 
-当前编辑 `execute` 返回 `capability_not_ready`，不会消耗解析批准或运行模型。具体分割、补图子计划与批准将在执行接线阶段提供，不能使用此处的根计划指纹直接生成。核心环境无需新增 Torch；SAM 的独立 CUDA 环境、完整本地模型锁与真实验收另有门槛，不能用本机 MPS 环境冒充已验证 CUDA 运行时。
+当前产品编辑 `execute` 返回 `capability_not_ready`，不会消耗解析批准或运行模型；T028才接线完整编辑Workflow，不能使用此处的根计划指纹直接生成。T024已在Windows CUDA环境用具体子计划完成受限固定样本验收：真实SAM仅受理一次，实际0.314051 GPU分钟、0 USD，释放后CUDA已分配字节为0；本地证据位于`.local/validation/ui-analysis/t024-windows/segmentation-runtime.json`。该入口不开放为Agent工具，也不授权Comfy补图。固定样本是开发用合成HUD，不是商业UI或24例正式质量证据。核心环境无需新增Torch；不同平台必须使用各自核验锁，不能用MPS或替身结果冒充CUDA现场证据。

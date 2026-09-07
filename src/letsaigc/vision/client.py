@@ -8,8 +8,8 @@ from pydantic import TypeAdapter
 from ..pipelines.contracts import Capability, Submission
 from ..pipelines.errors import PipelineError
 from ..schemas.pipeline import Cost, Identifier, digest
-from ..schemas.ui import UIObservation, UIStepBinding
-from .base import OCRJob, issue_permit
+from ..schemas.ui import UIObservation, UISegmentationRequest, UIStepBinding
+from .base import OCRJob, SAMJob, issue_permit, issue_sam_permit
 
 
 class VisionClient:
@@ -168,3 +168,116 @@ class OCROperationBackend:
         identity = TypeAdapter(Identifier).validate_python(submission.request_id)
         self.client.request("POST", "/v1/jobs/" + identity + "/cancel", task_id=submission.metadata["task_id"])
         return self.inspect(submission)
+
+
+class SAMOperationBackend:
+    """Coordinator adapter for one exact, approved SAM child operation."""
+
+    capability = Capability(id="ui.segment", can_cancel=True, resource="local-gpu")
+
+    def __init__(self, ledger, artifacts, client: VisionClient, *, signing_key: str):
+        self.ledger, self.artifacts, self.client = ledger, artifacts, client
+        self.signing_key = signing_key
+
+    def _job(self, operation_id: str) -> SAMJob:
+        operation = self.ledger.get(operation_id)
+        binding = self.ledger.ui_binding(operation_id)
+        plan = self.ledger.plan(operation.task_id)
+        try:
+            request_ref = next(
+                ref
+                for ref in binding.inputs
+                if ref == type(ref).model_validate(plan.parameters["request_ref"])
+            )
+            request = UISegmentationRequest.model_validate_json(self.artifacts.read(request_ref))
+        except Exception:
+            raise PipelineError("input_changed", "SAM child request is unavailable or changed") from None
+        parameters_hash = digest(
+            {
+                "prompt_version": request.prompt_version,
+                "prompts": [prompt.model_dump(mode="json") for prompt in request.prompts],
+            }
+        )
+        return SAMJob(
+            task_id=operation.task_id,
+            operation_id=operation_id,
+            canonical_ref=request.canonical_ref,
+            selection_ref=request.selection_ref,
+            selection_revision=request.selection_revision,
+            selection_hash=request.selection_hash,
+            model_snapshot_ref=request.model_snapshot_ref,
+            model_digest=request.model_snapshot_ref.sha256,
+            prompts=request.prompts,
+            parameters_hash=parameters_hash,
+            resources=request.resources,
+        )
+
+    def submit(self, operation_id, arguments):
+        supplied = UIStepBinding.model_validate(arguments["binding"])
+        frozen = self.ledger.ui_binding(operation_id)
+        if supplied != frozen:
+            raise PipelineError("input_changed", "SAM submission binding changed")
+        job = self._job(operation_id)
+        permit = issue_sam_permit(self.ledger, self.artifacts, job, self.signing_key)
+        receipt = self.client.request(
+            "POST", "/v1/jobs", task_id=job.task_id, data=job.model_dump(mode="json"), permit=permit
+        )
+        return Submission(request_id=receipt["request_id"], metadata={"task_id": job.task_id})
+
+    def recover(self, operation_id):
+        operation = self.ledger.get(operation_id)
+        receipt = self.client.operation(operation_id, task_id=operation.task_id)
+        if receipt is None:
+            return None
+        job = self._job(operation_id)
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("operation_id") != operation_id
+            or receipt.get("task_id") != operation.task_id
+            or receipt.get("payload_hash") != digest(job)
+        ):
+            raise PipelineError("operation_scope")
+        request_id = TypeAdapter(Identifier).validate_python(receipt.get("request_id", ""))
+        return Submission(request_id=request_id, metadata={"task_id": operation.task_id})
+
+    def inspect(self, submission):
+        request_id = TypeAdapter(Identifier).validate_python(submission.request_id)
+        result = self.client.job(request_id, task_id=submission.metadata["task_id"])
+        if result is None or result["state"] == "unknown":
+            return UIObservation(state="unknown", actual=None)
+        terminal = result["state"] in {"succeeded", "failed"}
+        return UIObservation(
+            state=result["state"] if terminal else "running",
+            actual=Cost.model_validate(result["actual"]) if terminal and result.get("actual") else None,
+        )
+
+    def collect(self, submission):
+        request_id = TypeAdapter(Identifier).validate_python(submission.request_id)
+        task_id = submission.metadata["task_id"]
+        result = self.client.job(request_id, task_id=task_id)
+        if result is None or result["state"] != "succeeded" or len(result["outputs"]) != 1:
+            raise PipelineError("invalid_output")
+        description = result["outputs"][0]
+        if description["output_id"] != "segmentation":
+            raise PipelineError("invalid_output")
+        data = self.client.output(request_id, "segmentation", task_id=task_id)
+        if (
+            data is None
+            or len(data) != description["size_bytes"]
+            or hashlib.sha256(data).hexdigest() != description["sha256"]
+        ):
+            raise PipelineError("artifact_changed")
+        return [("segmentation", data, "application/json")]
+
+    def cancel(self, submission):
+        request_id = TypeAdapter(Identifier).validate_python(submission.request_id)
+        self.client.request(
+            "POST", "/v1/jobs/" + request_id + "/cancel", task_id=submission.metadata["task_id"]
+        )
+        return self.inspect(submission)
+
+    def release(self):
+        result = self.client.release_model()
+        if not isinstance(result, dict) or result.get("released") is not True or result.get("device") != "cuda":
+            raise PipelineError("resource_release_unknown")
+        return result
