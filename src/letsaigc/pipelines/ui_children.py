@@ -15,11 +15,13 @@ from ..schemas.agent import TaskBudget
 from ..schemas.pipeline import ArtifactRef, PipelinePlan, canonical_json, validate_payload
 from .errors import PipelineError
 
-CHILD_PURPOSES = {"segmentation", "inpaint"}
 CHILD_WORKFLOWS = {
     "segmentation": ("ui_segmentation", "ui.segment"),
     "inpaint": ("ui_inpaint", "ui.inpaint"),
+    "reread_text": ("ui_text_revision", "ui.ocr"),
+    "review_region": ("ui_region_revision", "ui.analyze"),
 }
+CHILD_PURPOSES = set(CHILD_WORKFLOWS)
 
 
 def is_child_plan(plan: PipelinePlan) -> bool:
@@ -158,6 +160,11 @@ def validate_request(
     value = load_json(artifacts, ref, label="child request")
     if value.get("schema_version") not in {1, 2}:
         raise PipelineError("invalid_child", "Unsupported child request schema")
+    if purpose in {"reread_text", "review_region"}:
+        from ..ui_analysis.revision_inputs import validate_local_request
+
+        validate_local_request(artifacts, value, task_id=task_id, purpose=purpose,
+                               selection_ref=selection_ref, selection_revision=selection_revision)
     if purpose == "segmentation":
         try:
             from ..schemas.ui import UISegmentationRequest
@@ -212,10 +219,56 @@ def validate_request(
     return value
 
 
+def validate_rebound_selection(artifacts, root_ref: ArtifactRef, child_ref: ArtifactRef, *, task_id: str) -> None:
+    """Prove that rebinding a selection changed only task-scoped references.
+
+    In particular, element geometry, locks and source hashes cannot change
+    when a confirmed layout is copied into a GPU child.
+    """
+    if child_ref.task_id != task_id or child_ref.role != "selection":
+        raise PipelineError("artifact_scope")
+    seen = set()
+
+    def compare(left, right, depth=0):
+        if depth > 32:
+            raise PipelineError("invalid_selection")
+        if isinstance(left, dict) and {"artifact_id", "key", "sha256", "task_id", "role"} <= left.keys():
+            a, b = ArtifactRef.model_validate(left), ArtifactRef.model_validate(right)
+            if (a.task_id != root_ref.task_id or b.task_id != task_id
+                    or (a.role, a.media_type) != (b.role, b.media_type)):
+                raise PipelineError("artifact_scope")
+            pair = (a.key, b.key)
+            if pair in seen:
+                return
+            seen.add(pair)
+            before, after = artifacts.read(a), artifacts.read(b)
+            if before != after:
+                try:
+                    compare(json.loads(before), json.loads(after), depth + 1)
+                except (ValueError, TypeError):
+                    raise PipelineError("selection_conflict") from None
+            return
+        if isinstance(left, dict) and isinstance(right, dict) and left.keys() == right.keys():
+            for key, value in left.items():
+                if key == "task_id" and value == root_ref.task_id:
+                    if right[key] != task_id:
+                        raise PipelineError("artifact_scope")
+                else:
+                    compare(value, right[key], depth + 1)
+            return
+        if isinstance(left, list) and isinstance(right, list) and len(left) == len(right):
+            for a, b in zip(left, right, strict=True):
+                compare(a, b, depth + 1)
+            return
+        if type(left) is not type(right) or left != right:
+            raise PipelineError("selection_conflict")
+
+    compare(load_json(artifacts, root_ref, label="root selection"),
+            load_json(artifacts, child_ref, label="child selection"))
+
+
 def validate_child_plan(plan: PipelinePlan) -> None:
-    workflow, capability = child_definition(
-        "segmentation" if plan.workflow_type == "ui_segmentation" else "inpaint"
-    )
+    workflow, capability = child_definition(plan.parameters.get("purpose"))
     if plan.workflow_type != workflow or plan.generation_plan is not None:
         raise PipelineError("invalid_plan", "UI child plan registration is invalid")
     if plan.envelope.stage != "generation" or plan.envelope.allowed_capabilities != [capability]:

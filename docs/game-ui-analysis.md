@@ -132,7 +132,7 @@ conda run --no-capture-output -n letsaigc-core python -m letsaigc.pipelines.migr
 
 两个页面同时保存时，后提交的旧版本返回 `review_conflict`，本页修改保留。可先记录改动，再“重新载入草稿”后人工重做。历史版本可“恢复为新草稿”，不会删除旧版本。确认过程中进程退出，重新启动该任务的 review 服务会从账本恢复同一请求；未完整物化并校验前不推进已确认版本。
 
-确认结果标记 `human_assisted`，原自动输出独立保留，不能把人工校正直接充当评估真值。确认布局可用于下面的离线编辑准备；局部 OCR/VLM 重读、真实分割及补图执行仍待接线和验收。
+确认结果标记 `human_assisted`，原自动输出独立保留，不能把人工校正直接充当评估真值。确认布局可用于下面的编辑流程；局部 OCR/VLM 重读和编辑的真实 GPU 端到端验收仍待完成。
 
 本地验收 `.local/validation/ui-analysis/review-acceptance.json` 记录 Hades II、星穹铁道、Clash Royale 三例、84 个像素一致切片、双页面冲突、缩放/快捷键/历史恢复及确认发布前实际进程中断。新增搜索/OCR/VLM/GPU 调用均为 0；旧 unknown 0.25 USD 未清账。这是工作流预览验收，完整 UI 质量仍待评估。
 
@@ -153,7 +153,36 @@ conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui insp
 
 背景准备使用 `--mode reconstruct --target scene_background` 或 `map_surface`。没有明确目标时保留 `awaiting_selection`，不猜测整图背景。默认推荐保留文字；`--remove-text` 才把文字纳入移除提案。选择与预览均不是 GPU 批准。
 
-当前产品编辑 `execute` 返回 `capability_not_ready`，不会消耗解析批准或运行模型；T028才接线完整编辑Workflow，不能使用此处的根计划指纹直接生成。T024已在Windows CUDA环境用具体子计划完成受限固定样本验收：真实SAM仅受理一次，实际0.314051 GPU分钟、0 USD，释放后CUDA已分配字节为0；本地证据位于`.local/validation/ui-analysis/t024-windows/segmentation-runtime.json`。该入口不开放为Agent工具，也不授权Comfy补图。固定样本是开发用合成HUD，不是商业UI或24例正式质量证据。核心环境无需新增Torch；不同平台必须使用各自核验锁，不能用MPS或替身结果冒充CUDA现场证据。
+编辑流程现在展示具体分割子任务及完整指纹。单个明确推荐可直接批准，不必先执行 `select`；根解析指纹不能授权分割。分割完成并确认 SAM 释放后，系统根据实际结果生成 image/mask、变换、模型和 recipe 的补图子计划，再单独等待批准。两步沿同一根任务顺序运行并共享总预算。替换选择会使旧待执行子批准失效；已有请求受理或状态未知时先恢复观察，不能用新选择绕过。
+
+```sh
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui execute SEGMENT_CHILD_ID --approve FULL_SEGMENT_FINGERPRINT
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui inspect ROOT_TASK_ID --local
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui execute INPAINT_CHILD_ID --approve FULL_INPAINT_FINGERPRINT
+```
+
+以上为命令模板，不能使用历史 task ID 或指纹。规划/检查会列出子任务输入、单轮/总上限和根组总上限；示例预算文件的 GPU 上限为 0，只适合零 GPU 的准备工作。真实分割须先由操作者指定正数 GPU 预算，并核对每份新子计划。拆解输出保留分割原始证据及估计资产，补图保留生成候选和回映结果；空最终 mask 返回原图，零生成。
+
+编辑执行要求显式离线迁移后的 v5 账本、运行中的 Temporal worker、核验后的 SAM CUDA 服务和原生 ComfyUI 模型资源。现有 Mac 账本仍为 v4，返回 `migration_required`；代码不会自动迁移。`ui doctor` 分别报告分割和补图的真实就绪条件。Mac CPU 的节点验收不满足 CUDA 生成及释放证明，缺资源时不会降级执行。核心环境无需新增 Torch。
+
+T024已在Windows CUDA环境用具体子计划完成受限固定样本验收：真实SAM仅受理一次，实际0.314051 GPU分钟、0 USD，释放后CUDA已分配字节为0；本地证据位于`.local/validation/ui-analysis/t024-windows/segmentation-runtime.json`。固定样本是开发用合成HUD，不是商业UI或24例正式质量证据，Windows本地模型、账本和批准不随Git迁移。T028使用替身验证编辑接线，真实商业截图拆解/补图及质量仍由T030和后续任务验收。
+
+## 显式局部修订
+
+需要局部模型复核时，在新编辑根计划中指定 `--allow-local-revision`。此开关只允许后续规划；每个模型子任务仍展示具体输入、完整指纹和预算，等待单独批准。它不能补加到已冻结的旧计划中。
+
+```sh
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui revise ROOT_TASK_ID --action reread_text --target-id TEXT_ID
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui revise ROOT_TASK_ID --action review_region --target-id ELEMENT_ID
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui execute REVISION_CHILD_ID --approve FULL_REVISION_FINGERPRINT
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui revision-accept ORIGINAL_REVIEW_TASK_ID --suggestion SUGGESTION_ARTIFACT_ID
+```
+
+`reread_text` 针对一个文字区域，`review_region` 针对指定元素区域；可重复 `--target-id` 指定多个元素。模型结果保留为不可变建议和原始证据，不修改现有审阅版本。`revision-accept` 是显式人工采纳，只产生新草稿；锁定字段及旧版本冲突仍会拒绝。新草稿需要另行确认后才能用于新编辑计划，已冻结的旧计划不受影响。
+
+`adjust_segmentation` 以成功的分割子任务为基准，通过 `--parameters FILE` 提供目标元素的 `prompts`；重新分割产生的最终 mask 仍须形成新的补图批准。`regenerate` 以成功的补图子任务为基准，参数文件只允许 `prompt`、`negative_prompt`、`seed`。模型、recipe、mask 或其他采样参数不能借局部修订替换。相同请求重复规划复用具体子任务；需要下一次独立修订时显式递增 `--base-revision`，根费用、模型调用次数和 GPU 修订上限不会重置。
+
+这些命令仍需 v5 账本和相应服务就绪；本机 v4 账本不会自动迁移。真实模型建议与 GPU 编辑效果留待 T030 验收。
 
 ## macOS ComfyUI 节点验收环境
 

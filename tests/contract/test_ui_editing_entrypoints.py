@@ -41,7 +41,7 @@ def reviewed(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "service", lambda: service)
     monkeypatch.setattr(runtime, "freeze_models", lambda *a, **k: pytest.fail("review must not require OCR/VLM"))
     monkeypatch.setattr(cli, "approve", lambda *a, **k: pytest.fail("editing preparation cannot approve"))
-    monkeypatch.setattr(cli, "start_approved", lambda *a, **k: pytest.fail("editing execution is not wired yet"))
+    monkeypatch.setattr(cli, "start_approved", lambda *a, **k: pytest.fail("planning cannot start execution"))
     return service, repo, budget
 
 
@@ -92,7 +92,7 @@ def test_plan_select_reopen_inspect_and_repeated_selection_are_local(reviewed):
         "--json", "ui", "execute", planned["task_id"], "--approve", planned["plan_fingerprint"],
     ])
     assert denied.exit_code == 3
-    assert json.loads(denied.stdout)["error"]["code"] == "capability_not_ready"
+    assert json.loads(denied.stdout)["error"]["code"] == "migration_required"
 
 
 def test_reviewed_input_and_file_override_are_mutually_exclusive(reviewed):

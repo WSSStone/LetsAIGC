@@ -117,15 +117,68 @@ class ConfiguredOCRBackend:
             backend.client.client.close()
 
 
+class ConfiguredSAMBackend(ConfiguredOCRBackend):
+    capability = Capability(id="ui.segment", can_cancel=True, resource="local-gpu")
+
+    def backend(self):
+        from ..vision.client import SAMOperationBackend
+        from ..vision.sam_loader import load_sam_settings
+
+        config, _ = load_sam_settings()
+        return SAMOperationBackend(
+            self.service.ledger,
+            self.service.artifacts,
+            VisionClient(token=get_setting(config["token_env"], ""), endpoint=config["endpoint"]),
+            signing_key=get_setting(config["signing_key_env"], ""),
+        )
+
+    def release_operation(self, receipt):
+        return self.call("release_operation", receipt)
+
+
 def configure(service):
+    from ..pipelines.ui_inpaint import UIInpaintOperationBackend
+
     UIExecution(service)
     service.backends.setdefault("ui.ocr", ConfiguredOCRBackend(service))
     service.backends.setdefault("ui.analyze", UIAnalysisBackend(service.ledger, service.artifacts))
+    service.backends.setdefault("ui.segment", ConfiguredSAMBackend(service))
+    if "ui.inpaint" not in service.backends:
+        service.backends["ui.inpaint"] = UIInpaintOperationBackend(service)
+
+
+def segmentation_readiness():
+    from ..vision.sam_loader import load_sam_settings, validate_sam_model_files
+
+    result = {"ready": False, "model_calls": 0, "reasons": []}
+    try:
+        config, lock = load_sam_settings()
+        result["model_digest"] = digest(lock)
+        try:
+            validate_sam_model_files(lock, find_repo_root())
+        except (PipelineError, OSError):
+            result["reasons"].append("model_not_ready")
+        if len(get_setting(config["signing_key_env"], "")) < 32:
+            result["reasons"].append("authentication_not_configured")
+        client = VisionClient(token=get_setting(config["token_env"], ""), endpoint=config["endpoint"])
+        try:
+            health = client.health()
+        finally:
+            client.client.close()
+        if not health or not health.get("ready"):
+            result["reasons"].append("service_not_ready")
+        elif health.get("model_digest") != digest(lock) or health.get("device") != "cuda":
+            result["reasons"].append("service_model_mismatch")
+        result["ready"] = not result["reasons"]
+    except Exception:
+        result["reasons"].append("service_not_ready")
+    return result
 
 
 def diagnose(*, include_search=True):
     from ..doctor import review_readiness
     from ..execution.temporal.config import diagnose as temporal_diagnose
+    from ..pipelines.ui_inpaint import inpaint_readiness
     from ..vision.ocr import validate_model_files
 
     config, lock = vision_settings()
@@ -253,8 +306,8 @@ def diagnose(*, include_search=True):
         },
         "temporal": {"ready": temporal["status"] == "pass", "reasons": temporal_reasons},
         "search": {"ready": any(value["ready"] for value in provider_status.values()), "providers": provider_status},
-        "segmentation": {"ready": False},
-        "inpaint": {"ready": False},
+        "segmentation": segmentation_readiness(),
+        "inpaint": inpaint_readiness(),
         "batch": {"ready": False},
         "resources": {
             "free_disk_bytes": shutil.disk_usage(find_repo_root()).free,
@@ -285,3 +338,62 @@ def preflight(service, plan):
             raise PipelineError("search_not_ready")
     if status["resources"]["free_disk_bytes"] < request.resources.minimum_free_disk_bytes:
         raise PipelineError("resource_insufficient")
+
+
+def preflight_child(service, plan):
+    """Read-only readiness checks before a trusted CLI records child approval."""
+    from ..execution.temporal.config import diagnose as temporal_diagnose
+    from ..schemas.pipeline import ArtifactRef
+    from ..schemas.ui import UISegmentationRequest
+    from .editing import EditingExecution
+
+    EditingExecution(service).validate_current(plan)
+    if temporal_diagnose()["status"] != "pass":
+        raise PipelineError("temporal_unavailable")
+    if plan.workflow_type == "ui_segmentation":
+        from ..vision.sam_loader import load_sam_settings, validate_sam_model_files
+
+        request = UISegmentationRequest.model_validate_json(
+            service.artifacts.read(ArtifactRef.model_validate(plan.parameters["request_ref"]))
+        )
+        config, lock = load_sam_settings()
+        if digest(lock) != request.model_snapshot_ref.sha256:
+            raise PipelineError("dependency_changed")
+        validate_sam_model_files(lock, find_repo_root())
+        client = VisionClient(token=get_setting(config["token_env"], ""), endpoint=config["endpoint"])
+        try:
+            health = client.health()
+        finally:
+            client.client.close()
+        if not health or not health.get("ready") or health.get("model_digest") != digest(lock):
+            raise PipelineError("model_not_ready")
+        if len(get_setting(config["signing_key_env"], "")) < 32:
+            raise PipelineError("vision_not_ready")
+    elif plan.workflow_type == "ui_inpaint":
+        from ..pipelines.ui_inpaint import UIInpaintOperationBackend
+
+        UIInpaintOperationBackend(service).preflight(plan)
+    elif plan.workflow_type in {"ui_text_revision", "ui_region_revision"}:
+        from .revision_inputs import analysis_context
+
+        request = analysis_context(service.artifacts, plan)
+        status = diagnose(include_search=False)
+        if plan.workflow_type == "ui_text_revision":
+            _, lock = vision_settings()
+            model = request.model_bindings.get("ocr")
+            if model is None or model.sha256 != digest(lock):
+                raise PipelineError("dependency_changed")
+            if not status["ocr"]["ready"]:
+                raise PipelineError("model_not_ready")
+        else:
+            policy = UIVLMPolicy.model_validate_json(service.artifacts.read(request.model_bindings["vlm"]))
+            if (policy.model != get_setting("LLM_VLM_MODEL", DEFAULT_VLM_MODEL)
+                    or policy.endpoint_fingerprint != endpoint_fingerprint()
+                    or policy.pricing_ref.sha256 != digest(load_pricing())):
+                raise PipelineError("dependency_changed")
+            if not status["vlm"]["ready"]:
+                raise PipelineError("pricing_or_credentials_not_ready")
+        if status["resources"]["free_disk_bytes"] < request.resources.minimum_free_disk_bytes:
+            raise PipelineError("resource_insufficient")
+    else:
+        raise PipelineError("invalid_child")

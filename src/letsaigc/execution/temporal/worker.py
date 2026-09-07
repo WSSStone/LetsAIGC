@@ -18,6 +18,8 @@ async def serve(config: TemporalConfig, root: Path):
     from .client import connect
     from .smoke_workflow import ComfyGenerationWorkflow, SmokeWorkflow
     from .ui_activities import UIActivities
+    from .ui_editing_activities import UIEditingActivities
+    from .ui_editing_workflow import UIEditingWorkflow
     from .ui_workflow import UIAnalysisWorkflow
 
     client = await connect(config)
@@ -25,12 +27,13 @@ async def serve(config: TemporalConfig, root: Path):
     configure(service)
     activities = PipelineActivities(service)
     ui_activities = UIActivities(service)
+    editing_activities = UIEditingActivities(service)
     with ThreadPoolExecutor(max_workers=config.max_concurrent_activities) as executor:
         async with Worker(
             client,
             task_queue=config.task_queue,
-            workflows=[SmokeWorkflow, ComfyGenerationWorkflow, UIAnalysisWorkflow],
-            activities=[*activities.registered(), *ui_activities.registered()],
+            workflows=[SmokeWorkflow, ComfyGenerationWorkflow, UIAnalysisWorkflow, UIEditingWorkflow],
+            activities=[*activities.registered(), *ui_activities.registered(), *editing_activities.registered()],
             activity_executor=executor,
             max_concurrent_activities=config.max_concurrent_activities,
             # v1 implementations and queue stay replay-compatible. Breaking code gets

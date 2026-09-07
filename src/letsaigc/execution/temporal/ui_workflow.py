@@ -109,8 +109,7 @@ class UIAnalysisWorkflow(PipelineWorkflow):
                 await self.await_reconciliation("cancellation_outcome_unknown")
                 continue
             if self.phase_index == len(PHASES):
-                await self.publish(PipelineState.succeeded)
-                return self.current
+                return await self.finish_analysis()
             await self.publish(PipelineState.running)
             prepared = await self.call("prepare", result_type=UIStepPreparation)
             self.active_limit = min(self.active_limit, prepared.active_limit_seconds)
@@ -176,6 +175,10 @@ class UIAnalysisWorkflow(PipelineWorkflow):
                 self.position = 0
             observations += 1
             await self.check_continue(observations)
+
+    async def finish_analysis(self):
+        await self.publish(PipelineState.succeeded)
+        return self.current
 
     async def check_continue(self, observations):
         if observations >= self.input.observations_per_run or workflow.info().is_continue_as_new_suggested():

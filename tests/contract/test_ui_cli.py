@@ -36,7 +36,7 @@ def test_cli_import_plan_and_exact_fingerprint_without_network(tmp_path, ui_fixt
     assert json.loads(rejected.stdout)["error"]["code"] == "plan_changed"
 
 
-def test_cli_editing_plan_stays_offline_and_execution_waits_for_capability(tmp_path, monkeypatch):
+def test_cli_editing_plan_stays_offline_and_execution_requires_child_schema(tmp_path, monkeypatch):
     from letsaigc.ui_analysis import cli
 
     service = PipelineService(tmp_path / "editing", ui_schema=4)
@@ -66,7 +66,7 @@ def test_cli_editing_plan_stays_offline_and_execution_waits_for_capability(tmp_p
         "--json", "ui", "execute", planned["task_id"], "--approve", planned["plan_fingerprint"],
     ])
     assert executed.exit_code == 3
-    assert json.loads(executed.stdout)["error"]["code"] == "capability_not_ready"
+    assert json.loads(executed.stdout)["error"]["code"] == "migration_required"
 
 
 @pytest.mark.parametrize("schema_version", [3, 4, 5])

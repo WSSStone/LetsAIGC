@@ -11,7 +11,7 @@ from ..generation.pricing import PricingEntry, calculate_luna_cost, ensure_curre
 from ..pipelines.contracts import Capability, Submission
 from ..pipelines.errors import PipelineError
 from ..schemas.pipeline import ArtifactRef, Cost, Digest, Identifier, PipelineModel, canonical_json
-from ..schemas.ui import ImageView, UIAnalysisRequest, UIContent, UIObservation, UIStepBinding
+from ..schemas.ui import ImageView, UIContent, UIObservation, UIStepBinding
 from ..ui_analysis.coordinates import checked_box
 from .responses import DEFAULT_VLM_MODEL, ResponsesAgentModel, build_llm_client, endpoint_fingerprint
 
@@ -355,9 +355,9 @@ class UIAnalysisBackend:
     def submit(self, operation_id, arguments):
         binding = UIStepBinding.model_validate(arguments["binding"])
         plan = self.ledger.plan(binding.task_id)
-        request = UIAnalysisRequest.model_validate_json(
-            self.artifacts.read(ArtifactRef.model_validate(plan.parameters["request_ref"]))
-        )
+        from ..ui_analysis.revision_inputs import analysis_context
+
+        request = analysis_context(self.artifacts, plan)
         policy_ref = request.model_bindings.get("vlm")
         if policy_ref is None:
             raise PipelineError("model_not_ready")

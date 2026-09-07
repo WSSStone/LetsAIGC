@@ -168,3 +168,25 @@ T024验收结论承接用户报告和Windows提交记录：task `t024-win-sam-4b
 集成仅修复三处跨平台验证兼容：包锁正例显式选择Windows平台；本地验收路径在所有平台一致拒绝Windows盘符、根路径和反斜杠遍历；LIVE测试遇到所选目录缺少SAM专用记录时明确skip，不拿Mac解析证据替代。Windows SAM加载/释放和受限验收流程保留，公共Mac账本不迁移、不新增操作。完整日志与账本对比见`.local/validation/ui-analysis/t024-integration-2026-09-07/`；初次两项失败记录保留。
 
 合并后Mac完整回归：**579 passed、5 skipped、2 warnings，66.52秒**；ruff和diff检查通过。跳过为真实GPU1项、未启用T027专用探测1项、缺Windows T024证据1项、Windows专用共享冲突2项。公共账本保持v4且所有表行数/SHA与集成前完全一致。
+
+
+## T028 编辑接线验收（2026-09-07）
+
+按用户指定使用gpt-5.6-luna/xhigh分工：子代理负责离线子计划、原生补图后端和合同/恢复测试；主代理审查并接入CLI、独立Temporal编辑工作流、共享资源释放与结果投影。手动/搜索/确认review来源均通过；单个推荐无需先select，具体分割批准与最终image/mask补图批准分开。候选替换原子失效旧未提交child，unknown保留资源/预留；SAM/Comfy只有确认释放后才交接。默认Comfy原生编译、空mask零生成、canonical区外像素保护、拆解字形范围、已完成子任务幂等及通用pipeline入口路由均有回归。
+
+验收修复了完成补图后重复等待批准、规划时丢失候选、跨任务review引用重登记、字形manifest序列化及通用入口误选解析Workflow等问题。真实本地Temporal测试在替身SAM登记受理后终止worker并重启，观察同一request ID，不重复受理，并覆盖Continue-As-New和第二份子批准；该测试不是实际GPU恢复证据。
+
+最终完整回归：629 passed、5 skipped、2 warnings，83.18秒；ruff和diff检查通过。跳过为既有真实GPU、T027专用现场探测、Mac缺Windows T024证据及两个Windows专用共享冲突。日志和验收摘要在.local/validation/ui-analysis/t028-2026-09-07/，首次旧状态断言失败日志保留。真实本地账本仍v4，14张表行数与SHA全部未变；历史unknown0.25USD和旧未执行计划保留。
+
+只读ui doctor当前manual/review/VLM就绪；OCR和Temporal服务已停，SAM模型/服务及Comfy模型/服务未就绪。未启动真实推理、搜索或生成，也未打开内置浏览器；测试临时服务已由测试清理。T028已勾选，累计36/50，LIVE仍6/11；接下来T029，真实编辑T030及24例正式质量保持未完成。Windows T024结论和本地证据归属不变。
+
+
+### 2026-09-07 T029：显式局部修订接线验收
+
+T029已勾选，累计37/50，LIVE仍6/11。使用gpt-5.6-luna/xhigh子代理实现及补充测试，主代理审查并修复真实OCR新ID、人工版本来源、局部坐标、嵌套定价引用、共享次数、过期选择及分割资产复用问题。
+
+已接入四种局部修订和CLI：reread_text/review_region产生不可变建议；显式revision-accept仅创建原review任务的新草稿，锁定字段、CAS、确认版本和原模型证据受保护。目标分割只重算指定元素，未变资产保留hash/ID；合并结果分别进入拆解或新的最终mask补图批准。regenerate仅允许prompt/negative_prompt/seed。费用、OCR/VLM次数、局部view数及GPU修订沿原根累计，失败和unknown不重置。修订引用随根Temporal工作流恢复及Continue-As-New保留；完成检查幂等。
+
+最终完整回归684 passed、5 skipped、2条既有Pillow告警（84.45秒），ruff及git diff --check通过。包含真实本地Temporal恢复测试和已有LIVE证据只读核对；模型均为替身，不是T030真实效果验收。首轮683 passed日志保留。证据位于.local/validation/ui-analysis/t029-2026-09-07/，实际账本仍v4，14张表计数/hash与T028前一致；未迁移、未新增真实搜索/OCR/VLM/GPU调用、未使用内置浏览器。
+
+下一步T030：本机manual/review/VLM元数据就绪，OCR/Temporal服务已停，SAM及Comfy CUDA模型/服务未就绪。须先把本轮代码提交推送供Windows同步，在Windows核对现有环境和来源后准备新的真实编辑计划；保留T024结果及Windows本地证据，不重复T024、不复用旧批准。现有Mac v4账本不得隐式迁移。真实局部模型复核、商业截图拆解、两种背景补图、受理后恢复及24例正式质量仍未验收；T031及以后不提前实施。本轮实现尚未提交推送。

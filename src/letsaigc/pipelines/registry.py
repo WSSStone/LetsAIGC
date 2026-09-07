@@ -12,6 +12,8 @@ CAPABILITIES = {
     # adapters; leaving these without a backend prevents a legacy Comfy fallthrough.
     "ui.segment": Capability(id="ui.segment", resource="local-gpu"),
     "ui.inpaint": Capability(id="ui.inpaint", resource="local-gpu"),
+    "ui.ocr": Capability(id="ui.ocr", can_cancel=True),
+    "ui.analyze": Capability(id="ui.analyze"),
 }
 WORKFLOWS = {
     "temporal_smoke": ("letsaigc.smoke.v1", "simulation.generate"),

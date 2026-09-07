@@ -1,7 +1,9 @@
 """Trusted local UI entrypoint. Planning records inputs and never calls a model."""
 
 import asyncio
+import hashlib
 import json
+from contextlib import nullcontext
 from functools import wraps
 from pathlib import Path
 from uuid import uuid4
@@ -113,6 +115,70 @@ def load_ref(path):
     return ArtifactRef.model_validate(load_document(path))
 
 
+def _scoped_artifacts(instance, task_id, role):
+    """Read a bounded task-local content-addressed index without arbitrary paths."""
+    from pydantic import TypeAdapter
+
+    from ..schemas.pipeline import Identifier
+
+    TypeAdapter(Identifier).validate_python(task_id)
+    TypeAdapter(Identifier).validate_python(role)
+    directory = instance.artifacts.root / task_id
+    if not directory.resolve().is_relative_to(instance.artifacts.root):
+        raise PipelineError("artifact_scope")
+    paths = sorted(directory.glob(f"*/{role}/*"))
+    if len(paths) > 512:
+        raise PipelineError("input_limit")
+    for path in paths:
+        if not path.resolve().is_relative_to(directory.resolve()) or path.stat().st_size > 1024**2:
+            raise PipelineError("artifact_scope")
+        raw = path.read_bytes()
+        sha = hashlib.sha256(raw).hexdigest()
+        if path.name != sha:
+            raise PipelineError("artifact_changed")
+        ref = ArtifactRef(task_id=task_id, key=path.relative_to(instance.artifacts.root).as_posix(),
+                          operation_id=path.parent.parent.name, role=role, sha256=sha, size_bytes=len(raw),
+                          media_type="application/json",
+                          artifact_id="asset-" + hashlib.sha256((sha + role).encode()).hexdigest()[:48])
+        yield ref, json.loads(instance.artifacts.read(ref))
+
+
+def _revision_for_child(instance, root_task_id, child):
+    ancestors = []
+    current = child
+    while current.task_id != root_task_id:
+        if current.task_id in ancestors or len(ancestors) >= 64:
+            raise PipelineError("child_cycle")
+        ancestors.append(current.task_id)
+        current = instance.ledger.plan(current.parameters["parent_task_id"])
+    matches = [(ref, value) for ref, value in _scoped_artifacts(instance, root_task_id, "revision_plan")
+               if value.get("child_task_id") in ancestors]
+    matches.sort(key=lambda pair: ancestors.index(pair[1]["child_task_id"]))
+    if len(matches) > 1 and matches[0][1]["child_task_id"] == matches[1][1]["child_task_id"]:
+        raise PipelineError("revision_conflict")
+    return matches[0][0] if matches else None
+
+
+def _revision_view(instance, root_task_id):
+    """Expose durable suggestions without advancing a plan or contacting Temporal."""
+    manifests = list(_scoped_artifacts(instance, root_task_id, "revision_manifest"))
+    result = []
+    for ref, value in _scoped_artifacts(instance, root_task_id, "revision_plan"):
+        child_id = value["child_task_id"]
+        operations = instance.ledger.list_operations(child_id)
+        matching = [{"ref": item, "suggestions": body.get("suggestions", [])}
+                    for item, body in manifests
+                    if body.get("revision_ref", {}).get("sha256") == ref.sha256]
+        state = operations[-1].state if operations else "awaiting_approval"
+        if state == "succeeded" and not matching:
+            state = "awaiting_completion"
+        result.append({"revision_ref": ref, "child_task_id": child_id,
+                       "action": value["request"]["action"],
+                       "target_ids": value["request"]["target_ids"],
+                       "state": "succeeded" if matching else state, "manifests": matching})
+    return result
+
+
 def _trusted_sources(instance, request, *, model_bindings=None):
     """Return source IDs and original refs from the frozen task input."""
     inputs = getattr(request, "input", request)
@@ -152,6 +218,101 @@ def _trusted_sources(instance, request, *, model_bindings=None):
 def _check_selection_mode(value, mode):
     if mode == "decompose" and any(source.keep_elements or source.remove_elements for source in value.sources):
         raise PipelineError("invalid_selection")
+
+
+def _editing_sources(instance, plan, request):
+    """Resolve advanced overrides against completed, immutable analysis outputs."""
+    if "layout_ref" in request.model_bindings:
+        return _trusted_sources(instance, request)
+    outputs = [ArtifactRef.model_validate(item)
+               for operation in instance.ledger.list_operations(plan.task_id)
+               if operation.state == "succeeded"
+               for item in operation.result.get("artifacts", [])]
+    layouts = [ref for ref in outputs if ref.role == "layout"]
+    canonicals = [ref for ref in outputs if ref.role == "canonical"]
+    if not layouts:
+        return _trusted_sources(instance, request)
+    if len(layouts) != 1 or len(canonicals) != 1:
+        raise PipelineError("source_scope")
+    if request.input.kind == "manual":
+        sources = _trusted_sources(instance, request)
+    else:
+        manifests = [ref for ref in outputs if ref.role == "input_manifest"]
+        if len(manifests) != 1:
+            raise PipelineError("selection_not_ready")
+        manifest = UIInputManifest.model_validate_json(instance.artifacts.read(manifests[0]))
+        sources = {source.source_id: selection_tools.TrustedSource(source.source_id, source.original_ref)
+                   for source in manifest.sources}
+    layout = json.loads(instance.artifacts.read(layouts[0]))
+    source_id = layout.get("source_id")
+    if len(sources) != 1 or source_id not in sources:
+        raise PipelineError("source_scope")
+    return {source_id: selection_tools.TrustedSource(
+        source_id, sources[source_id].original_ref, layout["width"], layout["height"],
+        layouts[0], canonicals[0],
+    )}
+
+
+def _needs_analysis(instance, plan):
+    request = UIAnalysisRequest.model_validate_json(
+        instance.artifacts.read(ArtifactRef.model_validate(plan.parameters["request_ref"]))
+    )
+    if "layout_ref" in request.model_bindings or request.selection_ref is not None:
+        return False
+    catalog = selection_tools.selection_catalog(instance.artifacts, plan.task_id)
+    return not (catalog and (catalog.selection_ref or len(catalog.candidates) == 1))
+
+
+def _approval_view(instance, plan):
+    details = None
+    if plan.workflow_type in {"ui_text_revision", "ui_region_revision"}:
+        from .revision_inputs import LocalRevisionInputs, analysis_context
+
+        local = LocalRevisionInputs.model_validate_json(
+            instance.artifacts.read(ArtifactRef.model_validate(plan.parameters["request_ref"]))
+        )
+        revision = json.loads(instance.artifacts.read(local.revision_request_ref))
+        context = analysis_context(instance.artifacts, plan)
+        details = {"action": local.action, "target_ids": revision["target_ids"],
+                   "view": json.loads(instance.artifacts.read(local.view_ref)),
+                   "model_bindings": context.model_bindings, "suggestion_only": True}
+    if plan.workflow_type in {"ui_segmentation", "ui_inpaint"}:
+        request = json.loads(instance.artifacts.read(ArtifactRef.model_validate(plan.parameters["request_ref"])))
+        keys = ("canonical_ref", "selection_ref", "selection_hash", "selection_revision", "prompts",
+                "model_snapshot_ref")
+        if plan.workflow_type == "ui_inpaint":
+            keys = ("image_mask", "recipe", "model", "parameters", "envelope")
+        details = {key: request[key] for key in keys if key in request}
+    return {"task_id": plan.task_id, "plan_fingerprint": plan.fingerprint,
+            "purpose": plan.parameters.get("purpose", "analysis"), "budget": plan.envelope.budget,
+            "inputs": plan.inputs, "details": details}
+
+
+def _editing_view(instance, plan, *, prepare=False):
+    from .editing import EditingExecution
+
+    with instance.ledger.transaction() as db:
+        version = db.execute("PRAGMA user_version").fetchone()[0]
+    if version < 5:
+        return {"state": "migration_required", "pending_approvals": [], "children": []}
+    execution = EditingExecution(instance)
+    if prepare and not _needs_analysis(instance, plan):
+        prepared = execution.prepare(plan)
+    else:
+        prepared = execution.status(plan)
+    pending = []
+    if prepared.child is not None and prepared.state == "awaiting_approval":
+        pending = [_approval_view(instance, prepared.child)]
+    elif _needs_analysis(instance, plan) and not instance.ledger.list_operations(plan.task_id):
+        pending = [_approval_view(instance, plan)]
+    with instance.ledger.transaction() as db:
+        children = [dict(row) for row in db.execute(
+            "SELECT task_id,purpose,status FROM ui_child_bindings WHERE root_task_id=? ORDER BY rowid",
+            (plan.task_id,),
+        ).fetchall()]
+    return {"state": prepared.state, "reason": prepared.reason, "pending_approvals": pending,
+            "children": [{**row, **_approval_view(instance, instance.ledger.plan(row["task_id"]))} for row in children],
+            "artifacts": prepared.artifacts, "shared_total_limit": plan.envelope.budget}
 
 
 def _reviewed_input(instance, task_id, reviewed_task, review_revision):
@@ -324,7 +485,7 @@ def plan(
             raise PipelineError("capability_not_ready")
         inputs = UIIntake(instance.artifacts).rebind(ref, task_id, allowed_scopes={ref.task_id})
 
-    model_bindings = {} if review_refs else freeze_models(instance.artifacts, task_id)
+    model_bindings = {} if review_refs and not allow_local_revision else freeze_models(instance.artifacts, task_id)
     model_bindings.update(review_refs)
     selection_ref = None
     selection_info = {"mode": "none", "state": "not_applicable", "model_calls": 0}
@@ -402,36 +563,58 @@ def plan(
         selection=selection_info,
         reviewed=review_info,
         automatic=automatic_info,
-        execution_capability="not_ready" if mode != "parse" else "parse",
+        execution_capability="editing" if mode != "parse" else "parse",
+        editing=_editing_view(instance, result, prepare=True) if mode != "parse" else None,
     )
 
 
-async def start_approved(instance, plan, request):
+async def start_approved(instance, plan, request, *, revision_ref=None):
     from temporalio.common import WorkflowIDReusePolicy
     from temporalio.exceptions import WorkflowAlreadyStartedError
 
-    from ..execution.temporal.ui_messages import UIWorkflowInput
+    from ..execution.temporal.ui_messages import UIEditingWorkflowInput, UIWorkflowInput
+
+    frozen = UIAnalysisRequest.model_validate_json(
+        instance.artifacts.read(ArtifactRef.model_validate(plan.parameters["request_ref"]))
+    )
+    editing = frozen.output_mode != "parse"
+    child_approval = request.task_id != plan.task_id
+    argument_class = UIEditingWorkflowInput if editing else UIWorkflowInput
+    extra = {}
+    if editing and child_approval:
+        extra = {"initial_child_approval": request, "phase_index": 7, "approved": True,
+                 "revision_ref": revision_ref}
 
     config = load_config()
     client = await temporal.connect(config)
     try:
         handle = await client.start_workflow(
-            "letsaigc.ui.analysis.v1",
-            UIWorkflowInput(
+            "letsaigc.ui.editing.v1" if editing else "letsaigc.ui.analysis.v1",
+            argument_class(
                 plan=plan,
-                initial_approval=request,
+                initial_approval=None if child_approval else request,
                 poll_seconds=config.poll_seconds,
                 observations_per_run=config.observations_per_run,
                 activity_timeout_seconds=config.activity_timeout_seconds,
+                active_limit_seconds=frozen.resources.active_seconds,
+                **extra,
             ),
             id=plan.task_id,
             task_queue=config.task_queue,
-            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+            id_reuse_policy=(WorkflowIDReusePolicy.ALLOW_DUPLICATE if editing and child_approval
+                             else WorkflowIDReusePolicy.REJECT_DUPLICATE),
             result_type=PipelineRun,
         )
     except WorkflowAlreadyStartedError:
         handle = client.get_workflow_handle(plan.task_id)
         current = await handle.query("state", result_type=PipelineRun)
+        if revision_ref is not None:
+            active_revision = await handle.query("revision", result_type=ArtifactRef | None)
+            if active_revision is None or (active_revision.key, active_revision.sha256) != (
+                revision_ref.key, revision_ref.sha256,
+            ):
+                raise PipelineError("revision_in_progress",
+                                    "Finish the active root workflow before a revision") from None
         if current and current.state.value == "awaiting_approval":
             await handle.execute_update("approval", request, id=request.request_id, result_type=str)
         elif current and current.state.value in {"failed", "rejected", "cancelled"}:
@@ -470,10 +653,13 @@ def select(
         _check_selection_mode(
             UISelection.model_validate_json(instance.artifacts.read(proposed.selection_ref)), request.output_mode,
         )
-        prepared = selection_tools.select_candidate(instance.artifacts, task_id, candidate)
+        old_catalog = selection_tools.selection_catalog(instance.artifacts, task_id)
+        unchanged = old_catalog and old_catalog.selection_ref == proposed.selection_ref
+        with nullcontext() if unchanged else instance.ledger.selection_change(task_id):
+            prepared = selection_tools.select_candidate(instance.artifacts, task_id, candidate)
         candidate_info = {"candidate_id": candidate}
     else:
-        source_map = _trusted_sources(instance, request)
+        source_map = _editing_sources(instance, plan, request)
         parsed = selection_tools.validate_selection(
             instance.artifacts,
             task_id,
@@ -485,7 +671,14 @@ def select(
             instance.artifacts, task_id, parsed, source_map,
             operation_id="selection-select",
         )
-        catalog = selection_tools.record_selection(instance.artifacts, task_id, prepared.selection_ref)
+        old_catalog = selection_tools.selection_catalog(instance.artifacts, task_id)
+        unchanged = old_catalog and old_catalog.selection_ref.sha256 == prepared.selection_ref.sha256 if (
+            old_catalog and old_catalog.selection_ref
+        ) else False
+        with nullcontext() if unchanged else instance.ledger.selection_change(task_id):
+            catalog = old_catalog if unchanged else selection_tools.record_selection(
+                instance.artifacts, task_id, prepared.selection_ref,
+            )
         candidate_info = {}
     if candidate is not None:
         catalog = selection_tools.selection_catalog(instance.artifacts, task_id)
@@ -507,6 +700,7 @@ def select(
             "selection_ref": prepared.selection_ref,
             "selection_hash": prepared.selection_ref.sha256,
         },
+        editing=_editing_view(instance, plan, prepare=True),
     )
 
 
@@ -514,21 +708,100 @@ def select(
 @guarded("execute")
 def execute(task_id: str, fingerprint: str = typer.Option(..., "--approve")):
     instance = service()
+    from ..pipelines.ui_children import is_child_plan
+    from .editing import EditingExecution
+
+    plan = instance.checked_plan(task_id, fingerprint)
+    if is_child_plan(plan):
+        execution = EditingExecution(instance)
+        execution.validate_current(plan)
+        root = checked_ui(instance, execution.child_root(plan))
+        operations = instance.ledger.list_operations(plan.task_id)
+        if operations and all(operation.state in {"succeeded", "failed"} for operation in operations):
+            emit("execute", "already_completed", task_id=task_id, root_task_id=root.task_id,
+                 plan_fingerprint=plan.fingerprint,
+                 artifacts=[item for operation in operations for item in operation.result.get("artifacts", [])])
+            return
+        from .runtime import preflight_child
+
+        preflight_child(instance, plan)
+        receipt = approve(instance.ledger, task_id, fingerprint)
+        revision_ref = _revision_for_child(instance, root.task_id, plan)
+        if revision_ref is not None:
+            asyncio.run(start_approved(instance, root, receipt, revision_ref=revision_ref))
+        else:
+            asyncio.run(start_approved(instance, root, receipt))
+        emit("execute", "accepted", task_id=task_id, root_task_id=root.task_id, plan_fingerprint=plan.fingerprint)
+        return
     plan = checked_ui(instance, task_id, fingerprint)
     request = UIAnalysisRequest.model_validate_json(
         instance.artifacts.read(ArtifactRef.model_validate(plan.parameters["request_ref"]))
     )
-    # The legacy UI workflow is parse-only.  Keep this gate here until the
-    # T028 workflow wires reviewed/decompose/reconstruct plans; in particular,
-    # do not consume an analysis approval and then accidentally rerun OCR/VLM.
     if request.output_mode != "parse":
-        raise PipelineError("capability_not_ready")
+        with instance.ledger.transaction() as db:
+            if db.execute("PRAGMA user_version").fetchone()[0] < 5:
+                raise PipelineError("migration_required")
+    if request.output_mode != "parse" and not _needs_analysis(instance, plan):
+        # A layout/selection already exists. Display the concrete child;
+        # approving the root never grants the child's GPU authority.
+        editing = _editing_view(instance, plan, prepare=True)
+        emit("execute", editing["state"], task_id=task_id, editing=editing)
+        return
     from .runtime import preflight
 
     preflight(instance, plan)
     receipt = approve(instance.ledger, task_id, fingerprint)
     asyncio.run(start_approved(instance, plan, receipt))
     emit("execute", "accepted", task_id=task_id, plan_fingerprint=plan.fingerprint)
+
+
+@ui_app.command("revise")
+@guarded("revise")
+def revise(
+    task_id: str,
+    action: str = typer.Option(..., "--action"),
+    target_ids: list[str] = typer.Option(..., "--target-id"),
+    parameters: Path | None = typer.Option(None, "--parameters"),
+    base_revision: int = typer.Option(0, "--base-revision", min=0, max=2),
+):
+    """Prepare a bounded local revision; no model call or approval is made."""
+    from .revision import RevisionRequest
+    from .revision_execution import RevisionExecution
+
+    instance = service()
+    base = instance.ledger.plan(task_id)
+    request = RevisionRequest(base_task_id=task_id, base_fingerprint=base.fingerprint,
+                              base_revision=base_revision, action=action, target_ids=target_ids,
+                              parameters=load_document(parameters) if parameters else {})
+    prepared = RevisionExecution(instance).plan(request)
+    root = instance.ledger.plan(prepared.root_task_id)
+    emit("revise", "planned", root_task_id=root.task_id, revision_ref=prepared.revision_ref,
+         pending_approvals=[_approval_view(instance, prepared.child)] if prepared.child else [],
+         shared_total_limit=root.envelope.budget, impact=prepared.impact, artifacts=prepared.artifacts,
+         model_calls=0, gpu_calls=0)
+
+
+@ui_app.command("revision-accept")
+@guarded("revision-accept")
+def revision_accept(
+    task_id: str,
+    suggestion_id: str = typer.Option(..., "--suggestion"),
+    request_id: str | None = typer.Option(None, "--request-id"),
+):
+    """Explicitly adopt one model suggestion into a new human draft."""
+    from .revision_review import accept_suggestion
+
+    instance = service()
+    instance.ledger.plan(task_id)
+    matches = [(ref, value) for ref, value in _scoped_artifacts(instance, task_id, "review_suggestion")
+               if ref.artifact_id == suggestion_id]
+    if len(matches) != 1:
+        raise PipelineError("review_suggestion_unavailable")
+    ref, value = matches[0]
+    result = accept_suggestion(instance, ref, request_id or "accept-" + ref.sha256[:40],
+                               base_draft_revision=value["base_draft_revision"],
+                               base_confirmed_revision=value["base_confirmed_revision"])
+    emit("revision-accept", "accepted", task_id=task_id, result=result, model_calls=0, gpu_calls=0)
 
 
 @ui_app.command("inspect")
@@ -559,6 +832,7 @@ def inspect(task_id: str, local: bool = typer.Option(False, "--local")):
             "selection_ref": selection_catalog.selection_ref,
             "model_calls": selection_catalog.model_calls,
         }
+    editing_view = _editing_view(instance, plan) if editing else None
     emit(
         "inspect",
         current["state"] if current else "planned",
@@ -570,14 +844,17 @@ def inspect(task_id: str, local: bool = typer.Option(False, "--local")):
         stale=local or editing,
         root_budget_id=task_id,
         budget=plan.envelope.budget,
-        usage=instance.ledger.usage(task_id),
+        usage=instance.ledger.usage(task_id, include_children=editing),
         pending_approvals=(
+            editing_view["pending_approvals"] if editing else
             [{"task_id": task_id, "plan_fingerprint": plan.fingerprint}]
             if not editing and (current is None or current.get("state") == "awaiting_approval")
             else []
         ),
         selection=selection_view,
-        children=[],
+        children=editing_view["children"] if editing else [],
+        editing=editing_view,
+        revisions=_revision_view(instance, task_id) if editing else [],
         quality_status="pending",
         usage_verdict=next(
             (op.result.get("usage_verdict") for op in reversed(operations) if op.result.get("usage_verdict")), None

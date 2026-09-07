@@ -9,7 +9,7 @@ from pydantic import Field, model_validator
 
 from ..pipelines.errors import PipelineError
 from ..schemas.pipeline import ArtifactRef, Digest, Identifier, PipelineModel, canonical_json, digest
-from ..schemas.ui import UIAnalysisRequest, UIResourceLimits, UISegmentationPrompt, UISegmentationRequest
+from ..schemas.ui import UIResourceLimits, UISegmentationPrompt, UISegmentationRequest
 
 
 class OCRJob(PipelineModel):
@@ -96,9 +96,9 @@ def issue_permit(ledger, artifacts, job: OCRJob, signing_key: str) -> str:
     operation = ledger.get(job.operation_id)
     binding = ledger.ui_binding(job.operation_id)
     plan = ledger.plan(job.task_id)
-    request = UIAnalysisRequest.model_validate_json(
-        artifacts.read(ArtifactRef.model_validate(plan.parameters["request_ref"]))
-    )
+    from ..ui_analysis.revision_inputs import analysis_context
+
+    request = analysis_context(artifacts, plan)
     if operation.state != "submitting" or operation.task_id != job.task_id or binding.capability != "ui.ocr":
         raise PipelineError("approval_required")
     if job.view_ref not in binding.inputs or binding.dependency_hashes.get("ocr-model") != job.model_digest:

@@ -20,7 +20,7 @@ from pydantic import Field
 
 from ..assets.store import ArtifactStore
 from ..pipelines.errors import PipelineError
-from ..schemas.pipeline import ArtifactRef, Digest, Identifier, PipelineModel, canonical_json
+from ..schemas.pipeline import ArtifactRef, Digest, Identifier, PipelineModel, canonical_json, digest
 from ..schemas.ui import UISelection
 
 _PNG = "image/png"
@@ -150,6 +150,12 @@ def _validate_prompts(job, image: Image.Image, geometry):
 
     if len(job.prompts) > 64 or not job.prompts:
         raise _error("invalid_input", "SAM accepts one to 64 prompts")
+    # This hash is included in the signed permit and must equal the exact
+    # approved child request. Revision boxes are hints, not layout mutations.
+    revision_hints = job.parameters_hash == digest({
+        "prompt_version": "revision-v1",
+        "prompts": [prompt.model_dump(mode="json") for prompt in job.prompts],
+    })
     seen: set[str] = set()
     checked = []
     bounds = (0, 0, image.width, image.height)
@@ -164,7 +170,9 @@ def _validate_prompts(job, image: Image.Image, geometry):
             raise _error("input_changed", "SAM cannot prompt a frozen keep element")
         if prompt.element_id in elements:
             expected = elements[prompt.element_id]
-            if expected != box or not any(_contains(target, expected) for target in target_boxes):
+            if (expected != box and not revision_hints) or not any(
+                _contains(target, expected) for target in target_boxes
+            ):
                 raise _error("input_changed", "SAM prompt differs from the frozen layout element")
         elif elements:
             # Element selections have stable IDs; a made-up ID cannot hide a

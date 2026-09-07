@@ -125,7 +125,7 @@ class Ledger:
         from .registry import validate_registration
 
         validate_registration(plan)
-        if plan.workflow_type not in {"ui_segmentation", "ui_inpaint"}:
+        if not self._is_child_workflow(plan.workflow_type):
             raise PipelineError("invalid_child")
         with self.transaction() as db:
             if db.execute("PRAGMA user_version").fetchone()[0] < 5:
@@ -237,6 +237,12 @@ class Ledger:
             (root, task_id),
         ).fetchall()
         current_sources = set(json.loads(current["source_chain"]))
+        def selection_identity(binding):
+            plan = json.loads(db.execute("SELECT plan FROM tasks WHERE task_id=?",
+                                         (binding["task_id"],)).fetchone()["plan"])
+            ref = plan["parameters"].get("root_selection_ref")
+            return ref["sha256"] if ref else binding["selection_hash"]
+
         replaceable = []
         for row in pending:
             older = self._child_binding(db, row["task_id"])
@@ -246,7 +252,7 @@ class Ledger:
             same_selection = (
                 older_sources == current_sources
                 and older["selection_revision"] == current["selection_revision"]
-                and older["selection_hash"] == current["selection_hash"]
+                and selection_identity(older) == selection_identity(current)
             )
             # Segmentation and inpaint may both be approved for one frozen
             # selection.  A changed selection invalidates pending children
@@ -320,7 +326,9 @@ class Ledger:
 
     @staticmethod
     def _is_child_workflow(workflow_type: str) -> bool:
-        return workflow_type in {"ui_segmentation", "ui_inpaint"}
+        from .ui_children import CHILD_WORKFLOWS
+
+        return workflow_type in {item[0] for item in CHILD_WORKFLOWS.values()}
 
     @staticmethod
     def _child_binding(db: sqlite3.Connection, task_id: str):
@@ -335,7 +343,9 @@ class Ledger:
 
         if binding is None or binding.task_id != plan.task_id or binding.revision != revision or binding.outputs:
             raise PipelineError("invalid_step", "A frozen child input binding without outputs is required")
-        expected = "ui.segment" if plan.workflow_type == "ui_segmentation" else "ui.inpaint"
+        from .ui_children import capability_for_plan
+
+        expected = capability_for_plan(plan)
         if binding.capability != expected:
             raise PipelineError("prohibited_capability")
         child = Ledger._child_binding(db, plan.task_id)
@@ -507,13 +517,41 @@ class Ledger:
                 context = self._child_revision_context(db, plan.task_id)
                 charges = self._charged_revisions(db, root_task_id)
                 source_set = set(json.loads(context["source_chain"]))
-                capability = "ui.segment" if plan.workflow_type == "ui_segmentation" else "ui.inpaint"
+                from .ui_children import capability_for_plan
+
+                capability = capability_for_plan(plan)
                 prior = any(
                     row["capability"] == capability
                     and source_set.intersection(json.loads(row["source_chain"]))
                     for row in charges
                 )
-                revision_units = int(revision > 0 or prior)
+                local_review = capability in {"ui.ocr", "ui.analyze"}
+                revision_units = 0 if local_review else int(revision > 0 or prior)
+                if local_review:
+                    # Limits were frozen into the root plan's registered UI
+                    # policies. Count across child identities without charging
+                    # human review or OCR/VLM against GPU revision units.
+                    if ui_request is None or not ui_request.allow_local_revision:
+                        raise PipelineError("revision_not_allowed")
+                    from ..schemas.pipeline import digest
+
+                    root_data = json.loads(db.execute(
+                        "SELECT plan FROM tasks WHERE task_id=?", (root_task_id,)
+                    ).fetchone()["plan"])
+                    if digest(ui_request) != root_data["parameters"]["request_ref"]["sha256"]:
+                        raise PipelineError("input_changed")
+                    limits = ui_request.limits
+                    limit = limits.ocr_rereads_per_image if capability == "ui.ocr" else limits.vlm_calls_per_image
+                    count = sum(row["capability"] == capability for row in charges)
+                    if capability == "ui.analyze":
+                        if count >= ui_request.resources.vlm_local_views:
+                            raise PipelineError("call_limit", "Local VLM view limit is exhausted")
+                        initial = db.execute(
+                            "SELECT binding FROM ui_step_bindings WHERE task_id=?", (root_task_id,)
+                        ).fetchall()
+                        count += sum(json.loads(row["binding"])["capability"] == capability for row in initial)
+                    if count >= limit:
+                        raise PipelineError("call_limit", "Local revision call limit is exhausted")
                 used = sum(row["revision_units"] for row in charges)
                 if used + revision_units > root_budget.max_revisions:
                     raise PipelineError("revision_limit", "The root generation revision budget is exhausted")
@@ -544,7 +582,7 @@ class Ledger:
                     FROM ui_child_bindings WHERE task_id=?""",
                     (
                         key,
-                        "ui.segment" if plan.workflow_type == "ui_segmentation" else "ui.inpaint",
+                        capability,
                         revision,
                         revision_units,
                         plan.task_id,
@@ -559,6 +597,47 @@ class Ledger:
         if row is None:
             raise PipelineError("unknown_operation", "Unknown pipeline operation")
         return self._record(row)
+
+    @contextmanager
+    def selection_change(self, root_task_id: str):
+        """Serialize a local catalog replacement with child approval/submission."""
+        with self.transaction() as db:
+            if db.execute("PRAGMA user_version").fetchone()[0] < 5:
+                yield
+                return
+            children = db.execute(
+                "SELECT task_id FROM ui_child_bindings WHERE root_task_id=? AND status IN ('pending','active')",
+                (root_task_id,),
+            ).fetchall()
+            for child in children:
+                if db.execute(
+                    "SELECT 1 FROM operations WHERE task_id=? AND state IN "
+                    "('submitting','submitted','running','outcome_unknown')",
+                    (child["task_id"],),
+                ).fetchone():
+                    raise PipelineError("awaiting_reconciliation", "An earlier child is still in flight")
+            for child in children:
+                task_id = child["task_id"]
+                if db.execute(
+                    "SELECT 1 FROM operations WHERE task_id=? AND state IN ('succeeded','failed')", (task_id,)
+                ).fetchone():
+                    continue
+                prepared = db.execute(
+                    "SELECT operation_id FROM operations WHERE task_id=? AND state='prepared'", (task_id,)
+                ).fetchall()
+                for row in prepared:
+                    key = row["operation_id"]
+                    db.execute(
+                        "UPDATE operations SET state='failed',reserved_cost=0,reserved_gpu=0,result=? "
+                        "WHERE operation_id=?", (canonical_json({"selection_superseded": True}), key),
+                    )
+                    db.execute("DELETE FROM resources WHERE operation_id=?", (key,))
+                    self._sync_charge(db, key, "failed")
+                db.execute(
+                    "UPDATE ui_child_bindings SET status='selection_superseded',active=0 WHERE task_id=?", (task_id,),
+                )
+                db.execute("UPDATE tasks SET approved=0 WHERE task_id=?", (task_id,))
+            yield
 
     def begin_submit(self, key: str) -> bool:
         with self.transaction() as db:

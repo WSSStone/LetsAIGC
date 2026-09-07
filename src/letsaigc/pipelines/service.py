@@ -382,13 +382,15 @@ class PipelineService:
     ) -> PipelinePlan:
         """Register a segmentation/inpaint child without invoking a provider."""
         from .ui_children import (
+            CHILD_PURPOSES,
+            CHILD_WORKFLOWS,
             budget_subset,
             child_definition,
             validate_request,
             validate_selection,
         )
 
-        if purpose not in {"segmentation", "inpaint"}:
+        if purpose not in CHILD_PURPOSES:
             raise PipelineError("invalid_child", "Unknown UI child purpose")
         if task_id == parent_task_id:
             raise PipelineError("invalid_child", "A child cannot parent itself")
@@ -407,7 +409,7 @@ class PipelineService:
             if parent_row is None:
                 raise PipelineError("unknown_parent", "Unknown parent task")
             parent_plan = PipelinePlan.model_validate_json(parent_row["plan"])
-            if parent_plan.workflow_type not in {"ui_analysis", "ui_segmentation", "ui_inpaint"}:
+            if parent_plan.workflow_type not in {"ui_analysis", *(item[0] for item in CHILD_WORKFLOWS.values())}:
                 raise PipelineError("invalid_child", "Only UI tasks can parent UI children")
             child_root_row = db.execute(
                 "SELECT root_task_id FROM ui_child_bindings WHERE task_id=?", (parent_task_id,)
@@ -424,7 +426,36 @@ class PipelineService:
                 child_budget, parent_plan.envelope.budget
             ):
                 raise PipelineError("budget_scope", "Child budget must be a subset of its parent and root budget")
-            root_sources = {ref.artifact_id for ref in root_plan.inputs}
+            from ..schemas.ui import UIAnalysisRequest
+            from ..schemas.ui_provider import UIInputManifest
+            from ..ui_analysis.selection import source_id_for_ref
+
+            root_request = UIAnalysisRequest.model_validate_json(self.artifacts.read(
+                ArtifactRef.model_validate(root_plan.parameters["request_ref"])
+            ))
+            if purpose in {"reread_text", "review_region"} and not root_request.allow_local_revision:
+                raise PipelineError("revision_not_allowed")
+            originals = [ref for ref in root_plan.inputs if ref.role == "original"]
+            source_hashes = {ref.artifact_id: ref.sha256 for ref in originals}
+            source_hashes.update({source_id_for_ref(ref, index): ref.sha256
+                                  for index, ref in enumerate(originals, 1)})
+            manifests = []
+            if root_request.input.kind == "manual" and root_request.input.metadata_ref:
+                manifests.append(root_request.input.metadata_ref)
+            if root_request.input.kind == "search":
+                for row in db.execute("SELECT result FROM operations WHERE task_id=? AND state='succeeded'",
+                                      (root_task_id,)).fetchall():
+                    manifests.extend(ArtifactRef.model_validate(ref) for ref in json.loads(row["result"]).get(
+                        "artifacts", []) if ref.get("role") == "input_manifest")
+            for manifest_ref in manifests:
+                manifest = UIInputManifest.model_validate_json(self.artifacts.read(manifest_ref))
+                for source in manifest.sources:
+                    ref = source.original_ref
+                    if ref.task_id != root_task_id or (root_request.input.kind == "manual" and ref not in originals):
+                        raise PipelineError("source_scope")
+                    self.artifacts.read(ref)
+                    source_hashes[source.source_id] = ref.sha256
+            root_sources = set(source_hashes)
             parent_binding = db.execute(
                 "SELECT source_ids FROM ui_child_bindings WHERE task_id=?", (parent_task_id,)
             ).fetchone()
@@ -433,7 +464,6 @@ class PipelineService:
             )
             if any(source not in parent_sources for source in source_ids):
                 raise PipelineError("source_scope", "Child source is outside the root task")
-            source_hashes = {ref.artifact_id: ref.sha256 for ref in root_plan.inputs if ref.role == "original"}
             existing = db.execute(
                 "SELECT root_task_id FROM ui_child_bindings WHERE task_id=?", (task_id,)
             ).fetchone()
@@ -464,6 +494,17 @@ class PipelineService:
             media_type=selection_ref.media_type,
             source_ids=[selection_ref.artifact_id],
         )
+        from .ui_children import load_json, validate_rebound_selection
+
+        raw_request = load_json(self.artifacts, request_ref, label="child request")
+        supplied = raw_request.get("selection_ref") if purpose != "inpaint" else raw_request.get(
+            "image_mask", {}
+        ).get("selection_ref")
+        if supplied is not None:
+            supplied_ref = ArtifactRef.model_validate(supplied)
+            if supplied_ref.sha256 != local_selection.sha256:
+                validate_rebound_selection(self.artifacts, selection_ref, supplied_ref, task_id=task_id)
+            local_selection = supplied_ref
         child_request = validate_request(
             self.artifacts,
             request_ref,
@@ -477,10 +518,15 @@ class PipelineService:
             if declared_budget != child_budget:
                 raise PipelineError("budget_scope", "Masked plan and child approval budget must agree")
         workflow_type, capability = child_definition(purpose)
+        local_inputs = []
+        if purpose in {"reread_text", "review_region"}:
+            local_inputs = [ArtifactRef.model_validate(child_request[key]) for key in
+                            ("analysis_request_ref", "revision_request_ref", "view_ref", "texts_ref", "parameters_ref")]
         plan = PipelinePlan(
             task_id=task_id,
             workflow_type=workflow_type,
-            inputs=[request_ref, local_selection],
+            inputs=[request_ref, local_selection, *local_inputs],
+            dependency_hashes=child_request.get("dependency_hashes", {}) if purpose == "inpaint" else {},
             envelope=ApprovalEnvelope(stage="generation", allowed_capabilities=[capability], budget=child_budget),
             parameters={
                 "parent_task_id": parent_task_id,
@@ -489,6 +535,8 @@ class PipelineService:
                 "request_ref": request_ref.model_dump(mode="json"),
                 "selection_ref": local_selection.model_dump(mode="json"),
                 "selection_revision": selection_revision,
+                **({"root_selection_ref": selection_ref.model_dump(mode="json")}
+                   if local_selection.sha256 != selection_ref.sha256 else {}),
             },
         )
         self.ledger.register_child(
@@ -528,11 +576,28 @@ class PipelineService:
         plan = self.checked_plan(plan.task_id, plan.fingerprint)
         if is_child_plan(plan):
             validate_child_plan(plan)
+            if plan.workflow_type == "ui_segmentation" and plan.envelope.budget.max_iteration_gpu_minutes <= 0:
+                raise PipelineError("budget_insufficient", "SAM execution requires a positive GPU budget")
+            from ..ui_analysis.editing import EditingExecution
+            from ..ui_analysis.selection import selection_catalog
+
+            root_id = plan.parameters["root_task_id"]
+            if selection_catalog(self.artifacts, root_id) is not None:
+                EditingExecution(self).validate_current(plan)
             request = None
+            if plan.parameters["purpose"] in {"reread_text", "review_region"}:
+                from ..schemas.ui import UIAnalysisRequest
+
+                root_plan = self.ledger.plan(root_id)
+                request = UIAnalysisRequest.model_validate_json(self.artifacts.read(
+                    ArtifactRef.model_validate(root_plan.parameters["request_ref"])
+                ))
+                if not request.allow_local_revision:
+                    raise PipelineError("revision_not_allowed")
         else:
             request = validate_ui_registration(plan, self.artifacts)
-            if request.output_mode != "parse":
-                raise PipelineError("capability_not_ready", "UI editing is not available in the single-image preview")
+            if request.output_mode != "parse" and "layout_ref" in request.model_bindings:
+                raise PipelineError("prohibited_capability", "Frozen layout reuse cannot rerun analysis")
         if binding.outputs:
             raise PipelineError("invalid_step", "A submission cannot supply its own result references")
         for ref in [*binding.inputs, *([binding.parameters_ref] if binding.parameters_ref else [])]:
@@ -656,6 +721,19 @@ class PipelineService:
             except Exception:
                 self.ledger.uncertain(key)
                 raise OutcomeUnknown() from None
-        return self.ledger.finish_ui(
-            key, observed.actual, {**operation.result, "artifacts": outputs}, failed=observed.state == "failed"
-        )
+        result = {**operation.result, "artifacts": outputs}
+        # Retain the shared GPU reservation until the provider confirms model
+        # release. A terminal prompt alone is insufficient for a safe handoff.
+        release = getattr(self.ui_backend(plan, binding), "release_operation", None)
+        if release is not None:
+            receipt = Submission(request_id=operation.provider_request_id, metadata=operation.result.get("receipt", {}))
+            try:
+                proof = release(receipt)
+                if not isinstance(proof, dict) or proof.get("released") is not True:
+                    raise PipelineError("resource_release_unknown")
+                validate_payload(proof)
+                result["resource_release"] = proof
+            except Exception:
+                self.ledger.uncertain(key)
+                raise PipelineError("resource_release_unknown") from None
+        return self.ledger.finish_ui(key, observed.actual, result, failed=observed.state == "failed")

@@ -1,8 +1,8 @@
 # T019 编辑与父子边界合同
 
-当前实施状态（2026-09-06）：T020—T023、T025—T026已通过离线验收；T024已准备Windows专用锁、受限固定样本入口及独立v5验收账本，真实GPU执行仍须消费该子计划的精确批准。T028的编辑Temporal工作流仍未接线。
+当前实施状态（2026-09-07）：T020—T027已验收，含Windows固定样本SAM及Mac原生ComfyUI节点只读验收。T028新增独立编辑Temporal工作流，具体分割和最终image/mask补图分别批准；实际商业UI编辑和正式质量仍由T030及后续LIVE任务验收。
 
-本增量是先行合同，不交付 GPU 编辑运行时。T020 实现 DTO、父子账本与登记，T021 实现选择入口，T025/T026 实现 mask 像素与编译，T028 接线工作流。原 T003 批准拒绝、重复受理、未知费用、单任务预算矩阵继续复用，不复制到每个 provider。
+本文件保留T019先行合同并追加后续实现边界。T020 实现 DTO、父子账本与登记，T021 实现选择入口，T025/T026 实现 mask 像素与编译，T028 接线工作流。原 T003 批准拒绝、重复受理、未知费用、单任务预算矩阵继续复用，不复制到每个 provider。
 
 ## 机器合同与验证层次
 
@@ -49,7 +49,7 @@ ImageMaskBinding 的 image_ref 是准备后的 image 角色，canonical_ref 保�
 | 新 child、新 mask、同源修订 | 消费沿同一根/源/编辑链累计；max_revisions、VLM 4 次、OCR 重读 2 次及补图修订 2 次不重置，根预算可更严 |
 | 根取消 / 预留与提交竞争 | 根提交门禁先关闭，已准备 child 也不能 begin_submit；外部 I/O 在事务外 |
 
-`test_ui_child_approvals.py` 只使用本地账本和合成工件，不连接 SAM/Comfy。`test_ui_segmentation_runtime.py` 默认只读已明确选择的现场证据，pytest不会启动模型或签发批准。T028 的默认提案→批准/候选覆盖/真实 Workflow 接线仍须补齐；T024固定开发样本通过也不能替代编辑端到端或正式质量验收。
+`test_ui_child_approvals.py` 只使用本地账本和合成工件，不连接 SAM/Comfy。`test_ui_segmentation_runtime.py` 默认只读已明确选择的现场证据，pytest不会启动模型或签发批准。T028默认提案、候选覆盖及工作流接线使用替身验收；T024固定开发样本通过不能替代编辑的真实GPU端到端或正式质量验收。
 
 ## 测试门禁
 
@@ -64,3 +64,25 @@ ImageMaskBinding 的 image_ref 是准备后的 image 角色，canonical_ref 保�
 `ui_operation_charges.revision_units`显式记录修订预留：某源/能力首次revision=0为0，显式非零revision或同源后续新child为1；跨分割/补图共用根max_revisions。已受理失败和unknown保留次数；仅有未提交证明的取消准备释放。`revision_count`及按源计数是这些记录的派生汇总，金额仍只在operations。当前单图根预算已被UIAnalysisRequest的generation_revisions（上限2）收紧，根上限同时约束每源；原OCR/VLM冻结调用上限继续复用T003。批次与局部复核按T029/T032继续接线。
 
 v4→v5迁移测试覆盖备份、失败回滚、现有根登记和已确认review读取。真实本地账本本轮未迁移，执行provider仍拒绝未配置能力；473 passed、3 skipped、3 xfailed不代表真实GPU或正式质量已验收。
+
+## T028 接线边界
+
+新增`letsaigc.ui.editing.v1`保留旧`letsaigc.ui.analysis.v1`的解析历史。根任务承载顺序子步骤、取消和恢复；每个GPU子任务仍使用各自的不可变计划、批准回执和operation。Continue-As-New保存当前child及批准状态，worker中断后只恢复原request ID；补图成功后返回终态，不重新打开已完成子任务的批准门禁。
+
+`EditingExecution.prepare`只读冻结布局/模型锁并执行有界CPU准备，不加载模型、不调用搜索/OCR/VLM/SAM。跨作用域重登记只允许task/ref身份变化，几何、人工锁定及像素必须保留。`ui select`在账本事务内拒绝进行中/unknown请求，原子失效未提交子任务，再发布新的选择版本。
+
+`collect_step`先持久化产物，再取得provider结构化释放证明，最后结算并解除`local-gpu`占用。SAM要求CUDA释放证明；Comfy使用原生`/free`及空队列和固定版本CUDA计数验证，单次HTTP 200不算释放成功。释放未知时保留费用预留和资源归属，不开始下一模型。补图编译/上传位于具体批准之后；规划最终image/mask的hash、canonical回映变换、模型/recipe/参数及预算均进入子指纹。
+
+`ui inspect ROOT --local`展示本地投影、子计划、待批准项及根组费用；投影标注为可能滞后。已完成child重复`ui execute`返回已有结果而不新增批准。现有Mac真实账本仍为v4；T028回归的v5账本全部为临时测试数据。
+
+## T029 局部修订边界
+
+`RevisionRequest`固定`base_task_id/base_fingerprint/base_revision/action/target_ids/parameters`。四个动作是`reread_text`、`review_region`、`adjust_segmentation`、`regenerate`。`ui revise`只产生不可变`revision_request`及`revision_plan`，后者保存根任务、具体child ID/完整指纹、原请求引用和依赖影响；不签发批准、不调用模型。`ui inspect ROOT --local`的`revisions`列出修订状态、manifest及可采纳建议引用。
+
+子任务purpose新增`reread_text`和`review_region`，分别绑定`ui.ocr`和`ui.analyze`。`LocalRevisionInputs`固定同child作用域的分析请求、修订请求、选择版本、局部view、文字上下文及参数引用。局部图像必须等于canonical的未缩放裁剪；文字上下文使用同一局部坐标，稳定文字ID不变，原始多边形/人工文本保留在来源工件。VLM policy中的定价引用也重登记到child。根计划须已允许局部修订；parse根不能进入编辑修订路径。
+
+局部模型child仍要求完整具体指纹。OCR重读次数、VLM总次数/局部view数和金额沿原根累计；失败/unknown不释放已受理次数，局部OCR/VLM不消耗GPU修订计数。新child ID、Temporal新run或Continue-As-New不会重置这些限制。`UIEditingWorkflowInput.revision_ref`固定本次修订；新修订可在已完成根workflow下启动新run，活动中的另一修订会拒绝接收其批准。
+
+模型输出仅生成`review_suggestion`；人工来源的建议保存于原review任务作用域。`ui revision-accept ORIGINAL_REVIEW_TASK --suggestion ID`通过原确认binding、头版本CAS及字段锁检查创建新草稿，重复请求幂等；不自动确认、不改冻结计划、不提供批准权。
+
+分割修订只对目标元素调用SAM。`revision-v1`提示的完整参数hash由原签名permit覆盖；不同于原布局的提示框也必须位于已选择ROI内，不能包含keep元素或虚构ID，不能修改人工布局。未变化元素复用原资产的内容hash/ID，必要的child作用域副本保持像素相同；原SAM输出不改写。合并结果用于拆解或生成新的最终mask补图计划，后者另行批准。基准child选择已过期时拒绝修订。`regenerate`只允许prompt/negative_prompt/seed，保留mask/model/recipe等冻结输入，全部GPU修订共用根上限。GPU释放未确认不得发布完成或进入下一模型。

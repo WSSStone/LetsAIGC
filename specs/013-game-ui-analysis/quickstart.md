@@ -234,6 +234,11 @@ conda run --no-capture-output -n letsaigc-core ruff check .
 
 ## 2026-09-06 编辑准备实施状态
 
-T021—T027已完成，入口命令和候选选择见[编辑区域准备](../../docs/game-ui-analysis.md#编辑区域准备)。reviewed-task冻结确认版本，automatic-task显式沿用原自动布局，均不重跑OCR/VLM；核心环境无需Torch。Windows T024已用固定开发样本、具体批准和真实SAM完成验收，实际0.314051 GPU分钟、0 USD，provider仅受理一次且释放后CUDA已分配字节为0；本地证据见`.local/validation/ui-analysis/t024-windows/segmentation-runtime.json`。当前编辑execute仍等待T028工作流接线，勿消费旧批准尝试执行。T027已在macOS完成只读节点验收；T028及完整质量验收保持未完成；历史Mac回归565 passed、4 skipped，不能替代Windows上的其他LIVE或最终质量验收。
+T021—T027已完成，入口命令和候选选择见[编辑区域准备](../../docs/game-ui-analysis.md#编辑区域准备)。reviewed-task冻结确认版本，automatic-task显式沿用原自动布局，均不重跑OCR/VLM；核心环境无需Torch。Windows T024已用固定开发样本、具体批准和真实SAM完成验收，实际0.314051 GPU分钟、0 USD，provider仅受理一次且释放后CUDA已分配字节为0；本地证据见`.local/validation/ui-analysis/t024-windows/segmentation-runtime.json`。T027已在macOS完成只读节点验收。
+
+T028接线后，明确推荐直接展示具体SAM子计划，分割后再展示绑定最终image/mask的补图子计划。分别核对每个child ID、完整指纹及单轮/总预算后使用`ui execute CHILD_ID --approve FULL_FINGERPRINT`；根指纹不能代替子批准，`ui inspect ROOT_ID --local`汇总子任务及共享预算。完成的child重复执行仅返回已有结果。实际账本v4返回`migration_required`，不得自动迁移或复用旧批准；Mac CPU节点验收不等于CUDA编辑就绪。真实商业UI编辑及完整质量仍未验收。
 
 macOS T027运行资源与复核见[节点验收环境](../../docs/game-ui-analysis.md#macos-comfyui-节点验收环境)。合并Windows T024与Mac T027后累计35/50；Windows真实证据未迁入Mac，不重跑或复用旧批准。
+
+
+T029已接入显式局部修订：新编辑计划可指定`--allow-local-revision`冻结模型策略，`ui revise BASE_ID --action reread_text|review_region|adjust_segmentation|regenerate --target-id ID`生成具体子计划，批准后沿同一根运行。`ui inspect ROOT_ID --local`展示修订和建议；`ui revision-accept ORIGINAL_REVIEW_TASK_ID --suggestion ID`仅创建新草稿，不确认或授权模型。GPU修订只重算目标，未变资产复用；详细参数与预算边界见docs/game-ui-analysis.md。T030真实验收仍未完成。

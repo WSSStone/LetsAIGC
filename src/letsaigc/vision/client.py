@@ -281,3 +281,17 @@ class SAMOperationBackend:
         if not isinstance(result, dict) or result.get("released") is not True or result.get("device") != "cuda":
             raise PipelineError("resource_release_unknown")
         return result
+
+    def release_operation(self, submission):
+        task_id = submission.metadata["task_id"]
+        with self.ledger.transaction() as db:
+            rows = db.execute(
+                "SELECT o.operation_id FROM operations o JOIN resources r ON r.operation_id=o.operation_id "
+                "WHERE o.task_id=? AND o.provider_request_id=? AND r.resource='local-gpu'",
+                (task_id, submission.request_id),
+            ).fetchall()
+        if len(rows) != 1:
+            raise PipelineError("operation_scope")
+        if self.inspect(submission).state not in {"succeeded", "failed"}:
+            raise PipelineError("resource_release_unknown")
+        return self.release()
