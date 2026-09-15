@@ -93,6 +93,25 @@ def test_idempotent_settlement_and_unknown_reservation(tmp_path):
     assert ledger.usage(plan.task_id)["actual"] == plan.estimated_iteration
 
 
+def test_confirmed_physical_release_keeps_unknown_cost_and_unlocks_resource(tmp_path):
+    service, plan = authorized(tmp_path)
+    ledger = service.ledger
+    operation = ledger.reserve(plan, "generate", 0, plan.estimated_iteration, resource="local-gpu")
+    assert ledger.begin_submit(operation.operation_id)
+    ledger.uncertain(operation.operation_id, provider_request_id="receipt-1")
+    proof = {"released": True, "device": "cuda", "cuda_allocated_bytes": 0}
+
+    released = ledger.confirm_resource_release(operation.operation_id, "local-gpu", proof)
+    assert released.state == "outcome_unknown"
+    assert released.result["resource_release"] == proof
+    assert ledger.usage(plan.task_id)["unsettled"] == plan.estimated_iteration
+    assert owners(ledger) == []
+    assert ledger.confirm_resource_release(operation.operation_id, "local-gpu", proof) == released
+
+    second = ledger.reserve(plan, "generate", 1, plan.estimated_iteration, resource="local-gpu")
+    assert second.state == "prepared"
+
+
 @pytest.mark.parametrize("persistent", [False, True])
 def test_atomic_publication_tolerates_only_bounded_windows_sharing_errors(tmp_path, monkeypatch, persistent):
     import os

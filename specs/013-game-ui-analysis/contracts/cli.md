@@ -1,5 +1,12 @@
 # 013 UI 命令行契约
 
+2026-09-14 增量：`ui plan` 新增 `--inpaint-backend comfy|openai`（默认 comfy）和云端专用
+`--edit-instruction TEXT`，以及 `--edit-reasoning low|high`（默认 low，随新计划冻结）。
+openai 仅允许 reconstruct 与已确认 reviewed-task/成功 automatic-task 输入，
+缺指令拒绝。`plan`/`inspect` 的待批准 child details 展示实际输入预览路径、prompt、policy、context 和预算；
+`editing.image_files` 展示可打开的 PNG 路径。两阶段独立使用已有 `ui execute CHILD --approve FINGERPRINT`，
+不新增绕过批准入口。见[操作指南](../../../docs/game-ui-analysis.md)与[T030 MVP 范围](../../../docs/t030-mvp-scope.md)。
+
 状态：当前分支已接通 `letsaigc ui` 的单图 parse 命令及两家搜索适配，离线验证通过，T010/T017/T018真实预览已验收。Root `--json` 位于 `ui` 之前。下表仍包含后续编辑/批次合同：review 已注册；select、revise 尚未注册，编辑和批次 plan 返回 capability_not_ready；不静默改模式或截断输入。实际使用与就绪条件见[开发使用指南](../../../docs/game-ui-analysis.md)，验收状态以[任务记录](../tasks.md)为准。
 
 ## 命令
@@ -78,6 +85,15 @@ parse始终selection_mode=none，完成后直接收集结果，对其select必�
 
 ## 兼容和验证
 
+T030 云端增量：`ui retry-image IMAGE_CHILD_ID` 零调用地规划一次显式生图重试，输出 `task_id`、
+`plan_fingerprint`、`root_task_id`、`retry`、`details`、`model_calls: 0` 和 `gpu_calls: 0`。
+`retry` 冻结 `base_task_id`、`base_operation_id`、`budget_before`、`budget_after`；原图/提示词复用，
+新批准消费前有效预算不变。重复规划返回同一 child。
+`ui retry-image FIRST_RETRY_CHILD --image-budget 0.15` 可在首次重试已消费批准并以 unknown 结束后，
+规划一次同根后续重试；必须显式给出预算。同根最多两次额外重试，不能分叉、递归追加第三次或改旧指纹。
+后续提案只调整预算，复用图片/成功 guidance/生成参数；指纹绑定新的逐次/根总额和一个新增修订额度。
+`execute` 沿原根传递新 child 批准；`inspect.editing.shared_total_limit` 是已消费批准下的有效根上限。
+
 旧agent/pipeline/runtime命令及JSON语义保持不变。UI CLI复用可信批准入口，不能注册成运行时Agent工具。
 
 合同测试先于对应CLI实现：首版验证参数、JSON、取得指纹、单图搜索及未就绪能力；编辑阶段验证默认提案、候选与高级覆盖、旧指纹失效、select零模型调用；批次阶段补输入映射与部分结果。调用公共批准/预算机制的边界断言即可，不在CLI复制完整故障矩阵。真实链路按[Quickstart](../quickstart.md)分阶段验收。
@@ -93,3 +109,9 @@ T048提供固定ReviewedLayoutBinding读取；T021才将`ui plan --reviewed-task
 校正不依赖--allow-local-revision或TaskBudget.max_revisions；T029才接入显式模型局部重读/复核，原调用计数及批准边界不变，结果先形成建议再由人工采纳。页面的保存/确认绝不等同execute --approve，服务也不提供这类接口。
 
 T019 选择文件机器合同、确认布局入口及父子具体批准边界见 [editing.md](editing.md)。
+# 编辑结果状态（T030 MVP 收尾）
+
+`ui inspect` 新增 `status_source`。输入解析已经可用时，编辑根任务的顶层 `status`
+来自当前编辑账本（`editing_ledger`），与 `editing.state` 一致；尚在解析阶段及纯 parse
+任务保留原状态来源。`task`、`source`、`stale` 仍描述原工作流投影/实时查询，不冒充最新
+Temporal run，不改写历史失败或结算 unknown。离线 inspect 不启动服务或发起推理。

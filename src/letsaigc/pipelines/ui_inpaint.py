@@ -10,6 +10,7 @@ canonical composite on CPU.
 
 from __future__ import annotations
 
+import copy
 import io
 import json
 import time
@@ -477,17 +478,37 @@ class UIInpaintOperationBackend:
     def _validate_native_object_info(self, request: MaskedGenerationPlan, object_info: dict[str, Any]) -> None:
         """Run the existing native node validator with inert upload handles."""
         compiler = self.backend.compiler
+        upload_handles = ("preflight/image.png", "preflight/mask.png")
+        compiler._validate_upload_handle(upload_handles[0], "image")
+        compiler._validate_upload_handle(upload_handles[1], "mask")
         recipe = compiler._validate_masked_plan_metadata(request)
         base_path = (find_repo_root() / recipe.base_workflow).resolve()
         graph = compiler._compile_sdxl_inpaint(
             json.loads(base_path.read_text(encoding="utf-8")),
-            "preflight/image.png",
-            "preflight/mask.png",
+            upload_handles[0],
+            upload_handles[1],
         )
         compiler._apply_parameters(graph, recipe, request.parameters)
         compiler._scope_outputs(graph, request)
-        normalize_model_paths(graph, object_info)
-        compiler._validate_nodes(graph, recipe, object_info)
+
+        # LoadImage exposes the server's current upload inventory as an enum.
+        # Read-only preflight has deliberately not uploaded these inert handles,
+        # so add them only to a deep copy.  Provider preparation likewise binds
+        # only handles returned by the upload API before strict validation.
+        preflight_object_info = copy.deepcopy(object_info)
+        image_spec = (
+            preflight_object_info.get("LoadImage", {})
+            .get("input", {})
+            .get("required", {})
+            .get("image")
+        )
+        if isinstance(image_spec, (list, tuple)) and image_spec and isinstance(image_spec[0], list):
+            for handle in upload_handles:
+                if handle not in image_spec[0]:
+                    image_spec[0].append(handle)
+
+        normalize_model_paths(graph, preflight_object_info)
+        compiler._validate_nodes(graph, recipe, preflight_object_info)
 
     def _provider_readiness(self, request: MaskedGenerationPlan) -> None:
         """Perform bounded read-only native checks before any upload/submit."""
@@ -982,7 +1003,18 @@ class UIInpaintOperationBackend:
             proof = {"released": True}
         elif isinstance(response, dict) and response.get("released") is True:
             proof = {"released": True}
-            for key in ("device", "cuda_allocated_bytes", "release_metrics", "comfyui_version", "devices"):
+            for key in (
+                "device",
+                "cuda_allocated_bytes",
+                "model_cuda_allocated_bytes",
+                "runtime_cuda_residual_bytes",
+                "runtime_residual_limit_bytes",
+                "release_basis",
+                "stable_samples",
+                "release_metrics",
+                "comfyui_version",
+                "devices",
+            ):
                 if key in response:
                     proof[key] = response[key]
         else:

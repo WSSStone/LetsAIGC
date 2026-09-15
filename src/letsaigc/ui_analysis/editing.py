@@ -587,6 +587,24 @@ def _native_inpaint_contract() -> tuple[dict[str, str], Mapping[str, Any]]:
         raise PipelineError("dependency_not_ready", "Native inpaint contract is unavailable") from exc
 
 
+def inpaint_context_geometry(edit_box, image_size):
+    """Add read-only context without expanding the canonical edit mask.
+
+    Keep at least 64 pixels of context and a 256-pixel window where the
+    source permits it. Small inputs are enlarged to a 512-pixel model edge.
+    """
+    axes = []
+    for low, high, limit in zip(edit_box[:2], edit_box[2:], image_size, strict=True):
+        extent = min(limit, max(256, high - low + 128))
+        start = max(0, min(limit - extent, (low + high - extent) // 2))
+        axes.append((start, start + extent))
+    crop = (axes[0][0], axes[1][0], axes[0][1], axes[1][1])
+    width, height = crop[2] - crop[0], crop[3] - crop[1]
+    scale = max(512 / max(width, height), min(1.0, 1024 / max(width, height)))
+    resize = tuple(max(8, min(1024, math.ceil(edge * scale / 8) * 8)) for edge in (width, height))
+    return crop, resize
+
+
 class EditingExecution:
     """Deterministic coordinator for segmentation and masked generation."""
 
@@ -713,6 +731,27 @@ class EditingExecution:
                 raise PipelineError("selection_superseded", "A newer selection revision replaced this child")
         return True
 
+    def reprepare_inpaint(self, segmentation: PipelinePlan | str) -> EditingPreparation:
+        """Rebuild an unstarted inpaint proposal; never approve or resubmit SAM."""
+        segment = _as_plan(self.service, segmentation)
+        if segment.workflow_type != "ui_segmentation":
+            raise PipelineError("invalid_child")
+        self.validate_current(segment)
+        operations = self.service.ledger.list_operations(segment.task_id)
+        if not any(op.state == "succeeded" and _release_confirmed(op) for op in operations):
+            raise PipelineError("dependency_not_ready", "Successful SAM output and release proof required")
+        root = self.service.ledger.plan(self.child_root(segment))
+        request = UIAnalysisRequest.model_validate_json(
+            self.store.read(_ref(root.parameters["request_ref"], role="request"))
+        )
+        if request.output_mode != "reconstruct":
+            raise PipelineError("invalid_plan")
+        selection, _ = _selection_ref(self.service, root, request, None)
+        if selection is None:
+            raise PipelineError("selection_superseded")
+        return self._default_inpaint_plan(segment, root, request, selection_ref=selection,
+                                          budget=None, reprepare=True)
+
     def _default_inpaint_plan(
         self,
         segment: PipelinePlan,
@@ -722,6 +761,7 @@ class EditingExecution:
         selection_ref: ArtifactRef,
         budget: TaskBudget | Mapping[str, Any] | None,
         segment_artifacts: Sequence[ArtifactRef] | None = None,
+        reprepare: bool = False,
     ) -> EditingPreparation:
         """Materialize a deterministic image/mask bundle from SAM outputs."""
         # Once materialized, advance the immutable inpaint child instead of
@@ -734,6 +774,13 @@ class EditingExecution:
             ):
                 continue
             self.validate_current(child)
+            if reprepare:
+                with self.service.ledger.transaction() as db:
+                    approved = db.execute("SELECT 1 FROM approvals WHERE task_id=?", (child.task_id,)).fetchone()
+                    attempted = db.execute("SELECT 1 FROM operations WHERE task_id=?", (child.task_id,)).fetchone()
+                if approved or attempted:
+                    raise PipelineError("inpaint_already_started", "Preserve approved or attempted inpaint history")
+                continue
             state, artifacts, reason = _child_operation_state(self.service, child)
             if state == "succeeded" and not any(
                 _release_confirmed(op)
@@ -840,13 +887,9 @@ class EditingExecution:
         crop = mask_result.mask.getbbox()
         if crop is None:
             raise PipelineError("no_edit_pixels", "The final edit mask is empty")
+        crop, resize = inpaint_context_geometry(crop, canonical_image.size)
         crop_x1, crop_y1, crop_x2, crop_y2 = crop
         crop_width, crop_height = crop_x2 - crop_x1, crop_y2 - crop_y1
-        scale = min(1.0, 1024 / max(crop_width, crop_height))
-        resize = (
-            max(8, min(1024, math.ceil(crop_width * scale / 8) * 8)),
-            max(8, min(1024, math.ceil(crop_height * scale / 8) * 8)),
-        )
         from .inpaint import prepare_edit_mask, resize_and_pad_image
 
         canonical_crop = canonical_image.crop(crop)
@@ -864,6 +907,9 @@ class EditingExecution:
                 {
                     "segment": segment.fingerprint,
                     "mask": hashlib.sha256(mask_result.mask.tobytes()).hexdigest(),
+                    "context_policy": "context-64-min256-model512-v1",
+                    "crop": crop,
+                    "resize": resize,
                     "selection": selection_ref.sha256,
                 }
             )[:40]
@@ -1167,6 +1213,10 @@ class EditingExecution:
         )
         if type(revision) is not int or revision < 0:
             raise PipelineError("invalid_selection", "Selection revision is invalid")
+        if "cloud_inpaint" in request.model_bindings:
+            from .cloud_editing import prepare_cloud
+
+            return prepare_cloud(self, root_plan, request, frozen_selection, revision)
         for child, row in _children(self.service, root_plan.task_id):
             child_root_ref = child.parameters.get("root_selection_ref")
             child_root_hash = (

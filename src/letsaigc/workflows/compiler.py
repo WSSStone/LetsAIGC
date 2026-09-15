@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import math
+import os
 from collections.abc import Mapping
 from typing import Any
 
@@ -46,6 +47,14 @@ NATIVE_NODES = {
     "SaveImage",
     "SaveVideo",
 }
+
+
+def _filesystem_path(path):
+    """Return a path usable for local writes on Windows long-path worktrees."""
+    resolved = path.resolve()
+    if os.name == "nt" and not str(resolved).startswith("\\\\?\\"):
+        return resolved.__class__("\\\\?\\" + str(resolved))
+    return resolved
 
 
 def load_recipe(recipe_id: str) -> WorkflowRecipe:
@@ -140,7 +149,8 @@ class WorkflowCompiler:
         normalize_model_paths(graph, object_info)
         self._validate_nodes(graph, recipe, object_info)
         digest = hashlib.sha256(canonical_json(graph)).hexdigest()
-        destination = self.store.compiled_dir(plan.session_id, plan.task_id) / f"{digest}.json"
+        destination = _filesystem_path(self.store.compiled_dir(plan.session_id, plan.task_id) / f"{digest}.json")
+        destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(json.dumps(graph, ensure_ascii=False, indent=2), encoding="utf-8")
         contract = {
             "recipe_id": recipe.id,
@@ -206,7 +216,10 @@ class WorkflowCompiler:
             self._validate_nodes(graph, recipe, object_info)
 
         graph_digest = hashlib.sha256(canonical_json(graph)).hexdigest()
-        destination = self.store.compiled_dir(plan.session_id, plan.task_id) / f"{graph_digest}.json"
+        destination = _filesystem_path(
+            self.store.compiled_dir(plan.session_id, plan.task_id) / f"{graph_digest}.json"
+        )
+        destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(json.dumps(graph, ensure_ascii=False, indent=2), encoding="utf-8")
         mask_binding = plan.image_mask
         evidence = {

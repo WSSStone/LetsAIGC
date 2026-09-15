@@ -75,3 +75,19 @@ def test_invalid_geometry_rejected_and_ambiguous_text_unassigned(ui_store):
     ]
     layout = build_layout(canonical, view, texts, analysis)
     assert layout["unassigned_text_ids"] == ["text-a"]
+
+
+def test_full_image_box_survives_inverse_scale_roundoff(ui_store):
+    _, canonical, view, texts, analysis = fixture(ui_store)
+    canonical = canonical.model_copy(update={"width": 1672, "height": 941})
+    inverse = ((1672 / 1536, 0, 0), (0, 941 / 864, 0), (0, 0, 1))
+    view = view.model_copy(update={"width": 1536, "height": 864, "inverse": inverse})
+    analysis["elements"] = [
+        {"id": "scene", "kind": "panel", "bbox": [0, 0, 1536, 864],
+         "parent_id": None, "evidence_ids": ["overview"]},
+    ]
+    layout = build_layout(canonical, view, texts, analysis)
+    assert layout["elements"][0]["bbox"] == [0, 0, 1672, 941]
+    bad_inverse = ((1672 / 1536, 0, 0), (0, (941 + 0.001) / 864, 0), (0, 0, 1))
+    with pytest.raises(ValueError, match="outside canonical"):
+        build_layout(canonical, view.model_copy(update={"inverse": bad_inverse}), texts, analysis)

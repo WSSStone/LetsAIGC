@@ -1,9 +1,16 @@
 """Bounded Responses-based UI analysis; content never grants runtime authority."""
 
 import base64
+import hashlib
+import inspect
 import json
-from typing import Literal
+import time
+from datetime import UTC, datetime
+from io import BytesIO
+from typing import Any, Literal
 
+import httpx
+from PIL import Image
 from pydantic import Field, TypeAdapter, ValidationError
 
 from ..config import get_setting
@@ -16,6 +23,27 @@ from ..ui_analysis.coordinates import checked_box
 from .responses import DEFAULT_VLM_MODEL, ResponsesAgentModel, build_llm_client, endpoint_fingerprint
 
 EVIDENCE_POLICY = "source-id-enum-v1"
+REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+PROVIDER_IMAGE_ENCODING = "jpeg-rgb-q90-v1"
+HISTORICAL_IMAGE_ENCODING = "canonical-png-v1"
+CORRELATION_STRATEGY = "operation-id-header-v1"
+RAW_RESPONSE_TRANSPORT = "raw-response-v1"
+STREAMING_RESPONSE_TRANSPORT = "streaming-response-v1"
+DEFAULT_RESPONSE_TRANSPORT = STREAMING_RESPONSE_TRANSPORT
+RESPONSE_TRANSPORTS = (RAW_RESPONSE_TRANSPORT, STREAMING_RESPONSE_TRANSPORT)
+HISTORICAL_REQUEST_TIMEOUT_SECONDS = 120
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 300
+DEFAULT_CONNECT_TIMEOUT_SECONDS = 10
+DEFAULT_WRITE_TIMEOUT_SECONDS = 30
+DEFAULT_POOL_TIMEOUT_SECONDS = 10
+
+
+class VLMSubmissionError(RuntimeError):
+    """A provider-boundary failure carrying only safe, structured evidence."""
+
+    def __init__(self, submission_trace: dict[str, Any]):
+        super().__init__("VLM submission failed after dispatch")
+        self.submission_trace = submission_trace
 
 
 class EvidenceStatement(UIContent):
@@ -73,6 +101,18 @@ class UIVLMPolicy(PipelineModel):
     max_output_tokens: int = Field(default=4096, ge=256, le=4096, strict=True)
     # Missing in historical plans; preserve their request schema until newly planned.
     evidence_policy: Literal["source-id-enum-v1"] | None = None
+    # The remaining request-profile fields are optional solely for historical plans.
+    reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
+    image_detail: Literal["low", "high"] | None = None
+    provider_image_encoding: Literal["jpeg-rgb-q90-v1"] | None = None
+    correlation_strategy: Literal["operation-id-header-v1"] | None = None
+    response_transport: Literal["raw-response-v1", "streaming-response-v1"] | None = None
+    connect_timeout_seconds: int | None = Field(default=None, ge=1, le=600, strict=True)
+    write_timeout_seconds: int | None = Field(default=None, ge=1, le=600, strict=True)
+    pool_timeout_seconds: int | None = Field(default=None, ge=1, le=600, strict=True)
+    # For historical compatibility this field keeps its original name; for a
+    # new split transport profile it is the read timeout.
+    request_timeout_seconds: int | None = Field(default=None, ge=1, le=600, strict=True)
 
 
 def source_bound_schema(evidence_ids):
@@ -172,7 +212,22 @@ SYSTEM_PROMPT = (
 
 class UIAnalyzer:
     def __init__(
-        self, *, client=None, model=None, pricing=None, max_output_tokens=4096, evidence_policy=EVIDENCE_POLICY
+        self,
+        *,
+        client=None,
+        model=None,
+        pricing=None,
+        max_output_tokens=4096,
+        evidence_policy=EVIDENCE_POLICY,
+        reasoning_effort="medium",
+        image_detail="high",
+        provider_image_encoding=None,
+        correlation_strategy=None,
+        response_transport=None,
+        connect_timeout_seconds=None,
+        write_timeout_seconds=None,
+        pool_timeout_seconds=None,
+        request_timeout_seconds=HISTORICAL_REQUEST_TIMEOUT_SECONDS,
     ):
         self.client = client
         self.model = model or get_setting("LLM_VLM_MODEL", DEFAULT_VLM_MODEL)
@@ -183,8 +238,115 @@ class UIAnalyzer:
         self.evidence_policy = evidence_policy
         if type(max_output_tokens) is not int or not 256 <= max_output_tokens <= 4096:
             raise PipelineError("invalid_plan")
+        if reasoning_effort not in REASONING_EFFORTS:
+            raise PipelineError("invalid_plan")
+        if image_detail not in {"low", "high"}:
+            raise PipelineError("invalid_plan")
+        if provider_image_encoding not in {None, PROVIDER_IMAGE_ENCODING}:
+            raise PipelineError("invalid_plan")
+        if correlation_strategy not in {None, CORRELATION_STRATEGY}:
+            raise PipelineError("invalid_plan")
+        if response_transport not in {None, *RESPONSE_TRANSPORTS}:
+            raise PipelineError("invalid_plan")
+        if response_transport is not None and correlation_strategy is None:
+            raise PipelineError("invalid_plan")
+        if type(request_timeout_seconds) is not int or not 1 <= request_timeout_seconds <= 600:
+            raise PipelineError("invalid_plan")
+        timeout_values = (connect_timeout_seconds, write_timeout_seconds, pool_timeout_seconds)
+        if correlation_strategy is None and any(value is not None for value in timeout_values):
+            raise PipelineError("invalid_plan")
+        if correlation_strategy is not None:
+            timeout_values = (
+                connect_timeout_seconds
+                if connect_timeout_seconds is not None
+                else DEFAULT_CONNECT_TIMEOUT_SECONDS,
+                write_timeout_seconds if write_timeout_seconds is not None else DEFAULT_WRITE_TIMEOUT_SECONDS,
+                pool_timeout_seconds if pool_timeout_seconds is not None else DEFAULT_POOL_TIMEOUT_SECONDS,
+            )
+        if any(type(value) is not int or not 1 <= value <= 600 for value in timeout_values if value is not None):
+            raise PipelineError("invalid_plan")
+        self.reasoning_effort = reasoning_effort
+        self.image_detail = image_detail
+        self.provider_image_encoding = provider_image_encoding
+        self.correlation_strategy = correlation_strategy
+        self.response_transport = response_transport
+        self.connect_timeout_seconds, self.write_timeout_seconds, self.pool_timeout_seconds = timeout_values
+        self.request_timeout_seconds = request_timeout_seconds
 
-    def analyze(self, store, view: ImageView, ocr: dict, *, user_notes=""):
+    @property
+    def image_encoding(self):
+        return self.provider_image_encoding or HISTORICAL_IMAGE_ENCODING
+
+    def request_profile(self, *, image_media_type=None, image_bytes=None, width=None, height=None):
+        profile = {
+            "model": self.model,
+            "max_output_tokens": self.max_output_tokens,
+            "evidence_policy": self.evidence_policy,
+            "schema_profile": (
+                "strict-source-bound-v1" if self.evidence_policy == EVIDENCE_POLICY else "strict-ui-analysis-v1"
+            ),
+            "reasoning_effort": self.reasoning_effort,
+            "image_detail": self.image_detail,
+            "provider_image_encoding": self.image_encoding,
+            "correlation_strategy": self.correlation_strategy,
+            "response_transport": self.response_transport,
+            "connect_timeout_seconds": self.connect_timeout_seconds,
+            "write_timeout_seconds": self.write_timeout_seconds,
+            "pool_timeout_seconds": self.pool_timeout_seconds,
+            "request_timeout_seconds": self.request_timeout_seconds,
+        }
+        if image_media_type is not None:
+            profile["image_media_type"] = image_media_type
+        if image_bytes is not None:
+            profile["image_sha256"] = hashlib.sha256(image_bytes).hexdigest()
+            profile["image_size_bytes"] = len(image_bytes)
+        if width is not None:
+            profile["image_width"] = width
+        if height is not None:
+            profile["image_height"] = height
+        return profile
+
+    @staticmethod
+    def _jpeg_provider_image(raw, *, width, height):
+        try:
+            with Image.open(BytesIO(raw)) as source:
+                if source.size != (width, height):
+                    raise PipelineError("artifact_changed")
+                if source.mode == "RGB":
+                    image = source.copy()
+                elif "A" in source.getbands():
+                    background = Image.new("RGB", source.size, (255, 255, 255))
+                    background.paste(source.convert("RGBA"), mask=source.getchannel("A"))
+                    image = background
+                else:
+                    image = source.convert("RGB")
+                encoded = BytesIO()
+                image.save(
+                    encoded,
+                    format="JPEG",
+                    quality=90,
+                    subsampling=0,
+                    optimize=False,
+                    progressive=False,
+                )
+                image.close()
+        except PipelineError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise PipelineError("artifact_changed") from exc
+        return encoded.getvalue()
+
+    def _provider_image(self, store, view):
+        raw = store.read(view.input_ref)
+        if self.provider_image_encoding is None:
+            # Historical plans must keep the exact canonical PNG request behavior.
+            return "image/png", raw
+        if self.provider_image_encoding == PROVIDER_IMAGE_ENCODING:
+            return "image/jpeg", self._jpeg_provider_image(raw, width=view.width, height=view.height)
+        raise PipelineError("invalid_plan")
+
+    def prepare(self, store, view: ImageView, ocr: dict, *, user_notes=""):
+        """Build and locally validate the exact provider request without contacting it."""
         ensure_current(self.pricing)
         calculate_luna_cost(self.pricing, {}, model=self.model)
         if max(view.width, view.height) > 1536 or len(user_notes) > 16384:
@@ -205,28 +367,38 @@ class UIAnalyzer:
             if self.evidence_policy == EVIDENCE_POLICY
             else UIAnalysisOutput.model_json_schema()
         )
-        image = base64.b64encode(store.read(view.input_ref)).decode("ascii")
-        client = self.client or build_llm_client(timeout=120)
-        response = client.responses.create(
-            model=self.model,
-            reasoning={"effort": "medium"},
-            service_tier="default",
-            store=False,
-            parallel_tool_calls=False,
-            tools=[],
-            tool_choice="none",
-            max_output_tokens=self.max_output_tokens,
-            input=[
+        media_type, image = self._provider_image(store, view)
+        image_data = base64.b64encode(image).decode("ascii")
+        profile = self.request_profile(
+            image_media_type=media_type,
+            image_bytes=image,
+            width=view.width,
+            height=view.height,
+        )
+        request = {
+            "model": self.model,
+            "reasoning": {"effort": self.reasoning_effort},
+            "service_tier": "default",
+            "store": False,
+            "parallel_tool_calls": False,
+            "tools": [],
+            "tool_choice": "none",
+            "max_output_tokens": self.max_output_tokens,
+            "input": [
                 {"role": "developer", "content": SYSTEM_PROMPT},
                 {
                     "role": "user",
                     "content": [
                         {"type": "input_text", "text": content},
-                        {"type": "input_image", "image_url": "data:image/png;base64," + image, "detail": "high"},
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:{media_type};base64," + image_data,
+                            "detail": self.image_detail,
+                        },
                     ],
                 },
             ],
-            text={
+            "text": {
                 "format": {
                     "type": "json_schema",
                     "name": "game_ui_analysis",
@@ -234,7 +406,214 @@ class UIAnalyzer:
                     "schema": schema,
                 }
             },
+        }
+        if self.response_transport == STREAMING_RESPONSE_TRANSPORT:
+            request["stream"] = True
+        request_bytes = canonical_json(request).encode()
+        return {
+            "request": request,
+            "profile": profile,
+            "request_sha256": hashlib.sha256(request_bytes).hexdigest(),
+            "request_size_bytes": len(request_bytes),
+        }
+
+    @staticmethod
+    def _timestamp():
+        return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+    def _transport_timeout(self):
+        if self.correlation_strategy is None:
+            return self.request_timeout_seconds
+        return httpx.Timeout(
+            connect=self.connect_timeout_seconds,
+            write=self.write_timeout_seconds,
+            pool=self.pool_timeout_seconds,
+            read=self.request_timeout_seconds,
         )
+
+    @staticmethod
+    def _exception_chain(exc):
+        seen = set()
+        while exc is not None and id(exc) not in seen:
+            seen.add(id(exc))
+            yield exc
+            exc = exc.__cause__ or exc.__context__
+
+    @classmethod
+    def _error_category(cls, exc):
+        categories = {
+            "connecttimeout": "connect_timeout",
+            "writetimeout": "write_timeout",
+            "readtimeout": "read_timeout",
+            "pooltimeout": "pool_timeout",
+        }
+        for item in cls._exception_chain(exc):
+            name = type(item).__name__.lower()
+            for marker, category in categories.items():
+                if marker in name:
+                    return category
+        if any(type(item).__name__ == "APITimeoutError" for item in cls._exception_chain(exc)):
+            return "read_timeout"
+        if any(getattr(item, "status_code", None) is not None for item in cls._exception_chain(exc)):
+            return "http_rejection"
+        if any("connection" in type(item).__name__.lower() for item in cls._exception_chain(exc)):
+            return "connection_error"
+        return "sdk_dispatch_error"
+
+    @staticmethod
+    def _response_evidence(value):
+        response = getattr(value, "response", None)
+        status = getattr(value, "status_code", None)
+        if status is None and response is not None:
+            status = getattr(response, "status_code", None)
+        headers = getattr(value, "headers", None)
+        if headers is None and response is not None:
+            headers = getattr(response, "headers", None)
+        request_id = headers.get("x-request-id") if headers is not None else None
+        return status, request_id
+
+    def _new_trace(self, prepared, operation_id):
+        return {
+            "schema_version": 1,
+            "operation_id": operation_id,
+            "client_request_id": operation_id if self.correlation_strategy else None,
+            "attempt": 1,
+            "request_profile": prepared["profile"],
+            "request_sha256": prepared["request_sha256"],
+            "request_size_bytes": prepared["request_size_bytes"],
+            "started_at": self._timestamp(),
+            "finished_at": None,
+            "elapsed_ms": None,
+            "stages": [],
+            "http_status": None,
+            "provider_request_id": None,
+            "provider_response_id": None,
+            "usage": None,
+            "actual": None,
+            "error_category": None,
+        }
+
+    @classmethod
+    def _mark_stage(cls, trace, name):
+        trace["stages"].append({"name": name, "at": cls._timestamp()})
+
+    @classmethod
+    def _finish_trace(cls, trace, started):
+        trace["finished_at"] = cls._timestamp()
+        trace["elapsed_ms"] = round((time.monotonic() - started) * 1000, 3)
+
+    def _dispatch(self, client, prepared, operation_id, trace):
+        self._mark_stage(trace, "sdk_dispatch_started")
+        if self.correlation_strategy is None:
+            response = client.responses.create(**prepared["request"])
+            self._mark_stage(trace, "response_parsed")
+            return response
+        if not operation_id:
+            raise PipelineError("invalid_operation")
+        if self.response_transport == STREAMING_RESPONSE_TRANSPORT:
+            return self._dispatch_streaming(client, prepared, operation_id, trace)
+        raw_api = getattr(client.responses, "with_raw_response", None)
+        if raw_api is None:
+            raise PipelineError("capability_not_ready")
+        try:
+            raw = raw_api.create(
+                **prepared["request"],
+                extra_headers={"X-Client-Request-Id": operation_id},
+                timeout=self._transport_timeout(),
+            )
+        except Exception as exc:
+            status, request_id = self._response_evidence(exc)
+            if status is not None:
+                trace["http_status"] = status
+                trace["provider_request_id"] = request_id
+                self._mark_stage(trace, "response_headers_received")
+            trace["error_category"] = self._error_category(exc)
+            raise VLMSubmissionError(trace) from None
+        trace["http_status"] = getattr(raw, "status_code", None)
+        headers = getattr(raw, "headers", None)
+        trace["provider_request_id"] = headers.get("x-request-id") if headers is not None else None
+        self._mark_stage(trace, "response_headers_received")
+        if trace["http_status"] is not None and trace["http_status"] >= 400:
+            trace["error_category"] = "http_rejection"
+            raise VLMSubmissionError(trace)
+        try:
+            response = raw.parse()
+        except Exception:
+            trace["error_category"] = "response_parse_error"
+            raise VLMSubmissionError(trace) from None
+        self._mark_stage(trace, "response_parsed")
+        return response
+
+    def _dispatch_streaming(self, client, prepared, operation_id, trace):
+        streaming_api = getattr(client.responses, "with_streaming_response", None)
+        if streaming_api is None:
+            raise PipelineError("capability_not_ready")
+        try:
+            manager = streaming_api.create(
+                **prepared["request"],
+                extra_headers={"X-Client-Request-Id": operation_id},
+                timeout=self._transport_timeout(),
+            )
+            with manager as raw:
+                trace["http_status"] = getattr(raw, "status_code", None)
+                headers = getattr(raw, "headers", None)
+                trace["provider_request_id"] = headers.get("x-request-id") if headers is not None else None
+                self._mark_stage(trace, "response_headers_received")
+                if trace["http_status"] is not None and trace["http_status"] >= 400:
+                    trace["error_category"] = "http_rejection"
+                    raise VLMSubmissionError(trace)
+                try:
+                    stream = raw.parse()
+                except Exception:
+                    trace["error_category"] = "response_parse_error"
+                    raise VLMSubmissionError(trace) from None
+                response = None
+                event_seen = False
+                try:
+                    for event in stream:
+                        if not event_seen:
+                            self._mark_stage(trace, "stream_event_received")
+                            event_seen = True
+                        if getattr(event, "type", None) == "response.completed":
+                            response = getattr(event, "response", None)
+                except Exception as exc:
+                    category = self._error_category(exc)
+                    trace["error_category"] = (
+                        "response_parse_error" if category == "sdk_dispatch_error" else category
+                    )
+                    raise VLMSubmissionError(trace) from None
+                if response is None:
+                    trace["error_category"] = "response_parse_error"
+                    raise VLMSubmissionError(trace)
+                self._mark_stage(trace, "response_parsed")
+                return response
+        except VLMSubmissionError:
+            raise
+        except Exception as exc:
+            status, request_id = self._response_evidence(exc)
+            if status is not None and trace["http_status"] is None:
+                trace["http_status"] = status
+                trace["provider_request_id"] = request_id
+                self._mark_stage(trace, "response_headers_received")
+            trace["error_category"] = self._error_category(exc)
+            raise VLMSubmissionError(trace) from None
+
+    def analyze(
+        self, store, view: ImageView, ocr: dict, *, user_notes="", prepared=None, operation_id=None
+    ):
+        prepared = prepared or self.prepare(store, view, ocr, user_notes=user_notes)
+        trace = self._new_trace(prepared, operation_id)
+        started = time.monotonic()
+        client = self.client or build_llm_client(timeout=self._transport_timeout())
+        try:
+            response = self._dispatch(client, prepared, operation_id, trace)
+        except VLMSubmissionError as exc:
+            self._finish_trace(exc.submission_trace, started)
+            raise
+        except Exception as exc:
+            trace["error_category"] = self._error_category(exc)
+            self._finish_trace(trace, started)
+            raise VLMSubmissionError(trace) from None
         actual = None
         usage = None
         try:
@@ -250,7 +629,10 @@ class UIAnalyzer:
             usage = ResponsesAgentModel._usage_dict(raw_usage)
             actual = Cost(cost_usd=calculate_luna_cost(self.pricing, usage, model=self.model)).model_dump(mode="json")
         except Exception:
-            pass
+            trace["error_category"] = "usage_missing"
+        trace["provider_response_id"] = getattr(response, "id", None)
+        trace["usage"] = usage
+        trace["actual"] = actual
         result = {
             "schema_version": 1,
             "state": "unknown" if actual is None else "failed",
@@ -264,6 +646,8 @@ class UIAnalyzer:
             "error_code": "usage_unknown" if actual is None else "invalid_analysis",
             "validation_failure_stage": None,
             "validation_failure_reason": None,
+            "request_profile": prepared["profile"],
+            "submission_trace": trace,
         }
         validation_stage = "response_validation"
         try:
@@ -293,6 +677,10 @@ class UIAnalyzer:
             # Fixed local codes only: exception messages may contain provider/user content.
             result["validation_failure_stage"] = validation_stage
             result["validation_failure_reason"] = validation_failure_reason(exc)
+            trace["error_category"] = (
+                "response_parse_error" if validation_stage == "json_decode" else "response_validation_error"
+            )
+        self._finish_trace(trace, started)
         return result
 
     @staticmethod
@@ -352,7 +740,7 @@ class UIAnalysisBackend:
     def __init__(self, ledger, artifacts, *, client=None):
         self.ledger, self.artifacts, self.client = ledger, artifacts, client
 
-    def submit(self, operation_id, arguments):
+    def _prepared(self, arguments):
         binding = UIStepBinding.model_validate(arguments["binding"])
         plan = self.ledger.plan(binding.task_id)
         from ..ui_analysis.revision_inputs import analysis_context
@@ -382,19 +770,95 @@ class UIAnalysisBackend:
         analyzer = UIAnalyzer(
             client=self.client, model=policy.model, pricing=pricing, max_output_tokens=policy.max_output_tokens,
             evidence_policy=policy.evidence_policy,
+            reasoning_effort=policy.reasoning_effort or "medium",
+            image_detail=policy.image_detail or "high",
+            provider_image_encoding=policy.provider_image_encoding,
+            correlation_strategy=policy.correlation_strategy,
+            response_transport=policy.response_transport,
+            connect_timeout_seconds=policy.connect_timeout_seconds,
+            write_timeout_seconds=policy.write_timeout_seconds,
+            pool_timeout_seconds=policy.pool_timeout_seconds,
+            request_timeout_seconds=policy.request_timeout_seconds or HISTORICAL_REQUEST_TIMEOUT_SECONDS,
         )
-        result = analyzer.analyze(self.artifacts, view, ocr, user_notes=notes)
-        ref = self.artifacts.put(
-            plan.task_id,
-            operation_id,
-            canonical_json(result).encode(),
-            role="analysis",
-            source_ids=[item.artifact_id for item in binding.inputs],
+        prepared = analyzer.prepare(self.artifacts, view, ocr, user_notes=notes)
+        return analyzer, view, ocr, notes, prepared, binding, plan
+
+    def prepare(self, operation_id, arguments):
+        analyzer, view, ocr, notes, prepared, _, _ = self._prepared(arguments)
+        close_client = analyzer.client is None
+        if close_client:
+            # SDK construction validates local credentials/configuration only;
+            # no network request belongs beyond this preparation boundary.
+            analyzer.client = build_llm_client(timeout=analyzer._transport_timeout())
+        transport_api = (
+            "with_streaming_response"
+            if analyzer.response_transport == STREAMING_RESPONSE_TRANSPORT
+            else "with_raw_response"
         )
+        if analyzer.correlation_strategy and getattr(analyzer.client.responses, transport_api, None) is None:
+            if close_client:
+                analyzer.client.close()
+            raise PipelineError("capability_not_ready")
+        return {
+            "analyzer": analyzer,
+            "view": view,
+            "ocr": ocr,
+            "notes": notes,
+            "request": prepared,
+            "close_client": close_client,
+        }
+
+    def submit(self, operation_id, arguments):
+        prepared = arguments.get("prepared") or self.prepare(operation_id, arguments)
+        analyzer = prepared["analyzer"]
+        kwargs = {"user_notes": prepared["notes"]}
+        # Keep old local test/adaptor doubles source-compatible while the real
+        # analyzer receives the prebuilt request and cannot rebuild after the
+        # ledger submission boundary.
+        if "prepared" in inspect.signature(analyzer.analyze).parameters:
+            kwargs["prepared"] = prepared["request"]
+        if "operation_id" in inspect.signature(analyzer.analyze).parameters:
+            kwargs["operation_id"] = operation_id
+        try:
+            result = analyzer.analyze(self.artifacts, prepared["view"], prepared["ocr"], **kwargs)
+        finally:
+            if prepared.get("close_client"):
+                try:
+                    analyzer.client.close()
+                except Exception:
+                    pass
+        binding = UIStepBinding.model_validate(arguments["binding"])
+        plan = self.ledger.plan(binding.task_id)
+        submission_trace = result.get("submission_trace")
+        try:
+            ref = self.artifacts.put(
+                plan.task_id,
+                operation_id,
+                canonical_json(result).encode(),
+                role="analysis",
+                source_ids=[item.artifact_id for item in binding.inputs],
+            )
+        except Exception:
+            if isinstance(submission_trace, dict):
+                submission_trace["error_category"] = "artifact_persistence_error"
+                raise VLMSubmissionError(submission_trace) from None
+            raise
+        metadata = {"result_ref": ref.model_dump(mode="json")}
+        if isinstance(submission_trace, dict):
+            metadata.update(
+                provider_response_id=result.get("response_id"),
+                usage=result.get("usage"),
+                actual=result.get("actual"),
+                submission_trace=submission_trace,
+            )
         # Returning the reference makes the synchronous model result durable before public settlement.
         return Submission(
-            request_id=result["response_id"] or "response-" + operation_id,
-            metadata={"result_ref": ref.model_dump(mode="json")},
+            request_id=(
+                (submission_trace.get("provider_request_id") if isinstance(submission_trace, dict) else None)
+                or result.get("response_id")
+                or "response-" + operation_id
+            ),
+            metadata=metadata,
         )
 
     def inspect(self, submission):

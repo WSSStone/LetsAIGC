@@ -1,5 +1,10 @@
 # 013 视觉分析、分割和补图契约
 
+2026-09-14 增量：VLM 提示词 + GPT Image 2 是新增可选补图后端，不改变解析 VLM 的严格 schema。
+云端 guide 是一次单独批准的提示词生成，不回写 OCR、布局或 review；生图接受实际局部上下文及提示词，无 mask。
+输出为 generated 整张局部 PNG，不宣称隐藏背景真值或区外像素完全相同。本文件原 SAM/Comfy 模型锁、
+CUDA 释放及精确合成要求继续适用于原后端，不成为云端运行前置条件。见[T030 MVP](../../../docs/t030-mvp-scope.md)。
+
 状态：待实现；本地部署和真实模型推理仍需后续验收。模型选择及官方来源见 [research.md](/C:/Programs/LetsAIGC/specs/013-game-ui-analysis/research.md)。
 
 首版仅要求真实 CPU OCR 与 VLM：按 T006—T010 实现并检查三个开发样本。SAM、GPU 凭证/资源交接及 Comfy 蒙版属于 T019—T030；完整质量阈值属于 T035—T038，不阻塞首版能力就绪。

@@ -422,9 +422,9 @@ class PipelineService:
             if root_row is None or group_row is None:
                 raise PipelineError("unknown_parent", "Root UI budget group is unknown")
             root_plan = PipelinePlan.model_validate_json(root_row["plan"])
-            if not budget_subset(child_budget, root_plan.envelope.budget) or not budget_subset(
-                child_budget, parent_plan.envelope.budget
-            ):
+            within_parent_budget = budget_subset(child_budget, root_plan.envelope.budget) and budget_subset(
+                child_budget, parent_plan.envelope.budget)
+            if not within_parent_budget and purpose != "cloud_inpaint":
                 raise PipelineError("budget_scope", "Child budget must be a subset of its parent and root budget")
             from ..schemas.ui import UIAnalysisRequest
             from ..schemas.ui_provider import UIInputManifest
@@ -513,6 +513,16 @@ class PipelineService:
             selection_ref=local_selection,
             selection_revision=selection_revision,
         )
+        if not within_parent_budget:
+            from ..schemas.ui_cloud import CloudImageRetry
+
+            if purpose != "cloud_inpaint" or not child_request.get("retry") or parent_task_id != root_task_id:
+                raise PipelineError("budget_scope")
+            grant = CloudImageRetry.model_validate(child_request["retry"])
+            if not budget_subset(child_budget, grant.budget_after):
+                raise PipelineError("budget_scope")
+            # Registration below validates the exact ancestry and grant in the
+            # ledger transaction. Planning alone cannot activate this allowance.
         if purpose == "inpaint":
             declared_budget = TaskBudget.model_validate(child_request["envelope"]["budget"])
             if declared_budget != child_budget:
@@ -522,6 +532,11 @@ class PipelineService:
         if purpose in {"reread_text", "review_region"}:
             local_inputs = [ArtifactRef.model_validate(child_request[key]) for key in
                             ("analysis_request_ref", "revision_request_ref", "view_ref", "texts_ref", "parameters_ref")]
+        elif purpose in {"cloud_guide", "cloud_inpaint"}:
+            local_inputs = [ArtifactRef.model_validate(child_request["image_ref"]),
+                            ArtifactRef.model_validate(child_request["policy"]["pricing_ref"])]
+            if child_request.get("guidance_ref"):
+                local_inputs.append(ArtifactRef.model_validate(child_request["guidance_ref"]))
         plan = PipelinePlan(
             task_id=task_id,
             workflow_type=workflow_type,
@@ -535,6 +550,7 @@ class PipelineService:
                 "request_ref": request_ref.model_dump(mode="json"),
                 "selection_ref": local_selection.model_dump(mode="json"),
                 "selection_revision": selection_revision,
+                **({"cloud_retry": child_request["retry"]} if child_request.get("retry") else {}),
                 **({"root_selection_ref": selection_ref.model_dump(mode="json")}
                    if local_selection.sha256 != selection_ref.sha256 else {}),
             },
@@ -623,13 +639,45 @@ class PipelineService:
             for item in operation.result.get("artifacts", []):
                 self.artifacts.read(ArtifactRef.model_validate(item))
             return operation
-        if operation.state != "prepared" or not self.ledger.begin_submit(operation.operation_id):
+        if operation.state != "prepared":
+            return self.recover_step(plan, operation.operation_id)
+        arguments = {"binding": binding.model_dump(mode="json")}
+        prepare = getattr(backend, "prepare", None)
+        if prepare is not None:
+            try:
+                # UI providers build and validate their complete request before
+                # the ledger crosses the external-submission boundary.  The
+                # returned object stays in this Activity's memory; it is not
+                # serialized into Temporal history or the ledger.
+                arguments["prepared"] = prepare(operation.operation_id, arguments)
+            except PipelineError as exc:
+                return self.ledger.finish(
+                    operation.operation_id,
+                    Cost(),
+                    {"preparation_failed": True, "error_code": exc.code},
+                    failed=True,
+                )
+            except Exception:
+                return self.ledger.finish(
+                    operation.operation_id,
+                    Cost(),
+                    {"preparation_failed": True},
+                    failed=True,
+                )
+        if not self.ledger.begin_submit(operation.operation_id):
             return self.recover_step(plan, operation.operation_id)
         try:
-            receipt = backend.submit(operation.operation_id, {"binding": binding.model_dump(mode="json")})
+            receipt = backend.submit(operation.operation_id, arguments)
             return self.ledger.submitted(operation.operation_id, receipt.request_id, {"receipt": receipt.metadata})
-        except Exception:
-            self.ledger.uncertain(operation.operation_id)
+        except Exception as exc:
+            trace = getattr(exc, "submission_trace", None)
+            evidence = {"submission_trace": trace} if isinstance(trace, dict) else None
+            provider_request_id = trace.get("provider_request_id") if isinstance(trace, dict) else None
+            self.ledger.uncertain(
+                operation.operation_id,
+                evidence,
+                provider_request_id=provider_request_id if isinstance(provider_request_id, str) else None,
+            )
             raise OutcomeUnknown() from None
 
     def recover_step(self, plan: PipelinePlan, key: str) -> OperationRecord:

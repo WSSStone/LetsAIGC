@@ -299,6 +299,7 @@ def test_local_revision_planner_and_root_workflow_preserve_ref_budget_and_review
         assert condition()
 
     monkeypatch.setattr(activity, "heartbeat", lambda *args: None)
+    monkeypatch.setattr(workflow, "patched", lambda _: True)
     monkeypatch.setattr(workflow, "execute_activity", execute_activity)
     monkeypatch.setattr(
         workflow,

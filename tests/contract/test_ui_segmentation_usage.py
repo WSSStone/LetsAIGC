@@ -25,7 +25,7 @@ def test_completed_model_work_is_metered_even_when_quality_is_unknown(tmp_path, 
     assert state["actual"]["cost_usd"] == 0
 
 
-def test_interrupted_or_failed_model_work_does_not_get_fabricated_zero_usage(tmp_path, ui_store):
+def test_failed_model_work_records_measured_gpu_time(tmp_path, ui_store):
     job = _sam_job(ui_store)
 
     def fail(*_):
@@ -38,4 +38,7 @@ def test_interrupted_or_failed_model_work_does_not_get_fabricated_zero_usage(tmp
     receipt = app.jobs.accept(job)
     app._run(job, receipt["request_id"])
     state = app.jobs.job(receipt["request_id"], task_id=job.task_id)
-    assert state["state"] == "failed" and state["actual"] is None
+    assert state["state"] == "failed"
+    assert state["actual"] is not None
+    assert state["actual"]["gpu_minutes"] > 0
+    assert state["actual"]["cost_usd"] == 0

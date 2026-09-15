@@ -108,6 +108,8 @@ UICapability = Literal[
     "ui.project",
     "ui.segment",
     "ui.inpaint",
+    "ui.cloud_guide",
+    "ui.cloud_inpaint",
 ]
 
 

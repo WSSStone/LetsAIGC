@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 import numpy as np
 from PIL import Image, ImageOps
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..assets.store import ArtifactStore
 from ..pipelines.errors import PipelineError
@@ -43,8 +43,19 @@ class SegmentationAsset(PipelineModel):
     visible_crop_ref: ArtifactRef
 
 
-class SegmentationBundle(PipelineModel):
-    """The small, resumable result stored by the loopback service."""
+class SegmentationBundle(BaseModel):
+    """The bounded result stored out of band by the loopback service.
+
+    The bundle contains only artifact references, but up to 64 elements can
+    legitimately make its serialized artifact larger than the 64 KiB limit
+    applied to Temporal transport models.  The service persists this value as
+    one content-addressed artifact and returns only its ``ArtifactRef`` through
+    the workflow, so the aggregate transport validator must not run here.
+    Nested ``ArtifactRef`` and ``SegmentationAsset`` values retain their own
+    transport-safety validation.
+    """
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, frozen=True)
 
     schema_version: Literal[1] = 1
     capability: Literal["segmentation"] = "segmentation"
@@ -175,9 +186,20 @@ def _validate_prompts(job, image: Image.Image, geometry):
             ):
                 raise _error("input_changed", "SAM prompt differs from the frozen layout element")
         elif elements:
-            # Element selections have stable IDs; a made-up ID cannot hide a
-            # prompt inside another selected element.
-            raise _error("input_changed", "SAM prompt element is not in the frozen layout")
+            # Advanced bbox selections retain their trusted layout for keep/remove
+            # validation, but their deterministic prompt IDs are region-N rather
+            # than layout element IDs.  Permit only the exact indexed bbox; a
+            # made-up ID or altered box must not hide inside another element.
+            indexed_box = next(
+                (
+                    tuple(region.xyxy)
+                    for index, region in enumerate(source.target_regions, 1)
+                    if region.kind == "bbox" and prompt.element_id == f"region-{index}"
+                ),
+                None,
+            )
+            if indexed_box != box:
+                raise _error("input_changed", "SAM prompt element is not in the frozen layout")
         for point in prompt.points:
             if not (box[0] <= point[0] < box[2] and box[1] <= point[1] < box[3]):
                 raise _error("input_changed", "SAM prompt point is outside its frozen box")

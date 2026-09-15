@@ -13,6 +13,11 @@ from ..errors import RuntimeExecutionError
 
 DEFAULT_COMFY_URL = "http://127.0.0.1:8188"
 PINNED_COMFYUI_VERSION = "0.34.2"
+# PyTorch cu130 retains a small cuBLAS/runtime workspace after Comfy's
+# unload+cache reset.  It is not model residency, but it is still reported
+# honestly as active CUDA memory.  Two stable post-release samples below this
+# bound are required before the model lease can be handed off.
+PINNED_COMFY_RUNTIME_RESIDUAL_LIMIT_BYTES = 16 * 1024**2
 
 
 class ComfyClient:
@@ -153,7 +158,9 @@ class ComfyClient:
         return prompt_ids
 
     @staticmethod
-    def _cuda_release_proof(payload: Any) -> dict[str, Any]:
+    def _cuda_release_proof(
+        payload: Any, *, runtime_residual_limit_bytes: int = 0
+    ) -> dict[str, Any]:
         """Validate the pinned server's CUDA allocation counters."""
         if not isinstance(payload, dict):
             raise RuntimeExecutionError("ComfyUI system stats response is not an object")
@@ -167,12 +174,14 @@ class ComfyClient:
         if not cuda_devices:
             raise RuntimeExecutionError("ComfyUI CUDA allocation is not observable")
         proof_devices: list[dict[str, Any]] = []
+        active_total = 0
         for device in cuda_devices:
             total = device.get("torch_vram_total")
             free = device.get("torch_vram_free")
             if type(total) is not int or type(free) is not int or total < 0 or free < 0 or free > total:
                 raise RuntimeExecutionError("ComfyUI CUDA allocation counters are malformed")
-            if total - free != 0:
+            active = total - free
+            if active > runtime_residual_limit_bytes:
                 raise RuntimeExecutionError("ComfyUI still reports active CUDA allocation")
             index = device.get("index")
             if index is not None and type(index) is not int:
@@ -180,13 +189,20 @@ class ComfyClient:
             proof_devices.append({
                 "index": index,
                 "name": device.get("name") if isinstance(device.get("name"), str) else None,
-                "torch_vram_total": total,
-                "torch_vram_free": free,
-                "torch_vram_allocated": 0,
-            })
+                    "torch_vram_total": total,
+                    "torch_vram_free": free,
+                    "torch_vram_allocated": active,
+                    "model_cuda_allocated_bytes": 0,
+                    "runtime_cuda_residual_bytes": active,
+                })
+            active_total += active
         return {
             "released": True,
             "comfyui_version": PINNED_COMFYUI_VERSION,
+            "cuda_allocated_bytes": active_total,
+            "model_cuda_allocated_bytes": 0,
+            "runtime_cuda_residual_bytes": active_total,
+            "runtime_residual_limit_bytes": runtime_residual_limit_bytes,
             "devices": proof_devices,
         }
 
@@ -221,29 +237,58 @@ class ComfyClient:
             raise RuntimeExecutionError("ComfyUI model release request failed", details={"error": str(exc)}) from exc
 
         deadline = time.monotonic() + float(release_timeout)
+        stable_residual: tuple[int, ...] | None = None
         while True:
             after = self._queue_prompt_ids(self.queue())
             if after:
                 raise RuntimeExecutionError("ComfyUI queue became busy during model release")
+            stats = self.system_stats()
             try:
-                proof = self._cuda_release_proof(self.system_stats())
+                proof = self._cuda_release_proof(stats)
             except RuntimeExecutionError as exc:
                 # Version/device/schema failures are permanent proof gaps for
                 # this release attempt.  Only an observed non-zero allocation
-                # is expected to settle asynchronously after /free.
+                # is expected to settle asynchronously after /free.  The
+                # pinned Windows cu130 runtime can retain a small cuBLAS
+                # workspace; accept it only after two identical bounded
+                # samples, and preserve the actual byte count in the proof.
                 if "still reports active CUDA allocation" not in str(exc):
                     raise
+                try:
+                    residual = self._cuda_release_proof(
+                        stats,
+                        runtime_residual_limit_bytes=PINNED_COMFY_RUNTIME_RESIDUAL_LIMIT_BYTES,
+                    )
+                except RuntimeExecutionError as residual_exc:
+                    if "still reports active CUDA allocation" not in str(residual_exc):
+                        raise
+                    residual = None
+                if residual is not None:
+                    signature = tuple(
+                        device["runtime_cuda_residual_bytes"] for device in residual["devices"]
+                    )
+                    if stable_residual == signature:
+                        proof = {
+                            **residual,
+                            "release_basis": "stable_bounded_runtime_residual",
+                            "stable_samples": 2,
+                        }
+                        break
+                    stable_residual = signature
                 if time.monotonic() >= deadline:
                     raise
                 if poll_seconds:
                     time.sleep(min(float(poll_seconds), max(0.0, deadline - time.monotonic())))
                 continue
+            proof["release_basis"] = "zero_active_cuda"
+            proof["stable_samples"] = 1
+            break
             # A final queue read closes the race between the proof and handing
             # the resource back to the ledger.
-            final = self._queue_prompt_ids(self.queue())
-            if final:
-                raise RuntimeExecutionError("ComfyUI queue became busy before model release completed")
-            return proof
+        final = self._queue_prompt_ids(self.queue())
+        if final:
+            raise RuntimeExecutionError("ComfyUI queue became busy before model release completed")
+        return proof
 
     # The coordinator searches for this generic hook when it owns a native
     # Comfy backend.  Keep the explicit name above for callers that want to

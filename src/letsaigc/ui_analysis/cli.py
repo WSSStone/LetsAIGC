@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import os
 from contextlib import nullcontext
 from functools import wraps
 from pathlib import Path
@@ -130,9 +131,14 @@ def _scoped_artifacts(instance, task_id, role):
     if len(paths) > 512:
         raise PipelineError("input_limit")
     for path in paths:
-        if not path.resolve().is_relative_to(directory.resolve()) or path.stat().st_size > 1024**2:
+        if not path.resolve().is_relative_to(directory.resolve()):
             raise PipelineError("artifact_scope")
-        raw = path.read_bytes()
+        resolved = path.resolve()
+        if os.name == "nt" and not str(resolved).startswith("\\\\?\\"):
+            resolved = Path("\\\\?\\" + str(resolved))
+        if resolved.stat().st_size > 1024**2:
+            raise PipelineError("artifact_scope")
+        raw = resolved.read_bytes()
         sha = hashlib.sha256(raw).hexdigest()
         if path.name != sha:
             raise PipelineError("artifact_changed")
@@ -265,6 +271,24 @@ def _needs_analysis(instance, plan):
 
 def _approval_view(instance, plan):
     details = None
+    if plan.workflow_type in {"ui_cloud_guide", "ui_cloud_inpaint"}:
+        details = json.loads(instance.artifacts.read(ArtifactRef.model_validate(plan.parameters["request_ref"])))
+        details["preview_path"] = str(instance.artifacts.resolve(ArtifactRef.model_validate(details["image_ref"])))
+        details["operations"] = []
+        for operation in instance.ledger.list_operations(plan.task_id):
+            receipt = operation.result.get("receipt", {})
+            output = receipt.get("output_ref")
+            details["operations"].append({
+                "operation_id": operation.operation_id, "state": operation.state,
+                "trace": receipt.get("submission_trace", operation.result.get("submission_trace")),
+                "error_code": operation.result.get("error_code"),
+                "output_path": str(instance.artifacts.resolve(ArtifactRef.model_validate(output))) if output else None,
+            })
+    if plan.workflow_type == "ui_analysis":
+        request = UIAnalysisRequest.model_validate_json(
+            instance.artifacts.read(ArtifactRef.model_validate(plan.parameters["request_ref"]))
+        )
+        details = {"request_profile": _vlm_request_profile(instance, request)}
     if plan.workflow_type in {"ui_text_revision", "ui_region_revision"}:
         from .revision_inputs import LocalRevisionInputs, analysis_context
 
@@ -286,6 +310,17 @@ def _approval_view(instance, plan):
     return {"task_id": plan.task_id, "plan_fingerprint": plan.fingerprint,
             "purpose": plan.parameters.get("purpose", "analysis"), "budget": plan.envelope.budget,
             "inputs": plan.inputs, "details": details}
+
+
+def _vlm_request_profile(instance, request):
+    ref = request.model_bindings.get("vlm")
+    if ref is None:
+        return None
+    from ..agent.ui_analyzer import UIVLMPolicy
+    from .runtime import vlm_request_profile
+
+    policy = UIVLMPolicy.model_validate_json(instance.artifacts.read(ref))
+    return vlm_request_profile(policy)
 
 
 def _editing_view(instance, plan, *, prepare=False):
@@ -312,7 +347,9 @@ def _editing_view(instance, plan, *, prepare=False):
         ).fetchall()]
     return {"state": prepared.state, "reason": prepared.reason, "pending_approvals": pending,
             "children": [{**row, **_approval_view(instance, instance.ledger.plan(row["task_id"]))} for row in children],
-            "artifacts": prepared.artifacts, "shared_total_limit": plan.envelope.budget}
+            "artifacts": prepared.artifacts, "shared_total_limit": instance.ledger.effective_budget(plan.task_id),
+            "image_files": [{"ref": ref, "path": str(instance.artifacts.resolve(ref))}
+                            for ref in prepared.artifacts if ref.media_type == "image/png"]}
 
 
 def _reviewed_input(instance, task_id, reviewed_task, review_revision):
@@ -413,6 +450,9 @@ def plan(
     max_images: int | None = typer.Option(None, "--max-images", min=1, max=10),
     mode: str = typer.Option("parse", "--mode"),
     target: str | None = typer.Option(None, "--target"),
+    inpaint_backend: str = typer.Option("comfy", "--inpaint-backend"),
+    edit_instruction: str | None = typer.Option(None, "--edit-instruction"),
+    edit_reasoning: str = typer.Option("low", "--edit-reasoning"),
     selection: Path | None = typer.Option(None, "--selection"),
     policy: Path | None = typer.Option(None, "--policy"),
     language: str = typer.Option("auto", "--language"),
@@ -422,6 +462,15 @@ def plan(
 ):
     if mode not in {"parse", "decompose", "reconstruct"} or language not in {"auto", "zh", "en"}:
         raise PipelineError("invalid_input")
+    if inpaint_backend not in {"comfy", "openai"}:
+        raise PipelineError("invalid_input", "Choose comfy or openai")
+    if edit_reasoning not in {"low", "high"} or (inpaint_backend != "openai" and edit_reasoning != "low"):
+        raise PipelineError("invalid_input", "Cloud edit reasoning must be low or high")
+    if inpaint_backend == "openai":
+        if mode != "reconstruct" or not (reviewed_task or automatic_task) or not edit_instruction:
+            raise PipelineError("invalid_input", "Cloud editing requires reviewed/automatic input and an instruction")
+    elif edit_instruction is not None:
+        raise PipelineError("invalid_input", "Edit instruction is for the cloud backend")
     if reviewed_task is None and review_revision is not None:
         raise PipelineError("invalid_input")
     if (reviewed_task or automatic_task) and max_images is not None:
@@ -487,6 +536,11 @@ def plan(
 
     model_bindings = {} if review_refs and not allow_local_revision else freeze_models(instance.artifacts, task_id)
     model_bindings.update(review_refs)
+    if inpaint_backend == "openai":
+        from .cloud_editing import freeze_policy
+
+        model_bindings["cloud_inpaint"] = freeze_policy(
+            instance.artifacts, task_id, edit_instruction, task_budget, reasoning=edit_reasoning)
     selection_ref = None
     selection_info = {"mode": "none", "state": "not_applicable", "model_calls": 0}
     if mode != "parse":
@@ -563,6 +617,7 @@ def plan(
         selection=selection_info,
         reviewed=review_info,
         automatic=automatic_info,
+        request_profile=_vlm_request_profile(instance, request),
         execution_capability="editing" if mode != "parse" else "parse",
         editing=_editing_view(instance, result, prepare=True) if mode != "parse" else None,
     )
@@ -583,7 +638,8 @@ async def start_approved(instance, plan, request, *, revision_ref=None):
     extra = {}
     if editing and child_approval:
         extra = {"initial_child_approval": request, "phase_index": 7, "approved": True,
-                 "revision_ref": revision_ref}
+                 "revision_ref": revision_ref,
+                 "child": instance.checked_plan(request.task_id, request.plan_fingerprint)}
 
     config = load_config()
     client = await temporal.connect(config)
@@ -595,7 +651,9 @@ async def start_approved(instance, plan, request, *, revision_ref=None):
                 initial_approval=None if child_approval else request,
                 poll_seconds=config.poll_seconds,
                 observations_per_run=config.observations_per_run,
-                activity_timeout_seconds=config.activity_timeout_seconds,
+                activity_timeout_seconds=(max(360, config.activity_timeout_seconds)
+                                          if "cloud_inpaint" in frozen.model_bindings
+                                          else config.activity_timeout_seconds),
                 active_limit_seconds=frozen.resources.active_seconds,
                 **extra,
             ),
@@ -615,10 +673,14 @@ async def start_approved(instance, plan, request, *, revision_ref=None):
             ):
                 raise PipelineError("revision_in_progress",
                                     "Finish the active root workflow before a revision") from None
-        if current and current.state.value == "awaiting_approval":
+        retry = instance.ledger.plan(request.task_id).parameters.get("cloud_retry") if child_approval else None
+        if current and (current.state.value == "awaiting_approval" or
+                        (retry and current.state.value == "awaiting_reconciliation")):
             await handle.execute_update("approval", request, id=request.request_id, result_type=str)
         elif current and current.state.value in {"failed", "rejected", "cancelled"}:
             raise PipelineError("recovery_unavailable") from None
+        else:
+            raise PipelineError("approval_not_delivered", "Workflow is not awaiting approval") from None
     return handle.id
 
 
@@ -627,6 +689,32 @@ def checked_ui(instance, task_id, fingerprint=None, *, verify=True):
     if plan.workflow_type != "ui_analysis":
         raise PipelineError("invalid_plan")
     return instance.checked_plan(task_id, fingerprint or plan.fingerprint, verify_inputs=verify)
+
+
+@ui_app.command("reprepare-inpaint")
+@guarded("reprepare-inpaint")
+def reprepare_inpaint(segmentation_task_id: str):
+    """Rebuild an unapproved inpaint proposal from released SAM outputs, offline."""
+    from .editing import EditingExecution
+
+    prepared = EditingExecution(service()).reprepare_inpaint(segmentation_task_id)
+    emit("reprepare-inpaint", prepared.state, task_id=prepared.child.task_id,
+         plan_fingerprint=prepared.child.fingerprint, root_task_id=prepared.root_task_id,
+         budget=prepared.child.envelope.budget, inputs=prepared.child.inputs,
+         model_calls=0, gpu_calls=0)
+
+
+@ui_app.command("retry-image")
+@guarded("retry-image")
+def retry_image(image_task_id: str, image_budget: float | None = typer.Option(None, "--image-budget")):
+    """Plan one explicit extra cloud image attempt; never call or approve a model."""
+    from .cloud_editing import plan_image_retry
+
+    instance = service()
+    child = plan_image_retry(instance, image_task_id, image_budget_usd=image_budget)
+    emit("retry-image", "awaiting_approval", **_approval_view(instance, child),
+         root_task_id=child.parameters["root_task_id"],
+         retry=child.parameters["cloud_retry"], model_calls=0, gpu_calls=0)
 
 
 @ui_app.command("select")
@@ -731,7 +819,9 @@ def execute(task_id: str, fingerprint: str = typer.Option(..., "--approve")):
             asyncio.run(start_approved(instance, root, receipt, revision_ref=revision_ref))
         else:
             asyncio.run(start_approved(instance, root, receipt))
-        emit("execute", "accepted", task_id=task_id, root_task_id=root.task_id, plan_fingerprint=plan.fingerprint)
+        emit("execute", "accepted", task_id=task_id, root_task_id=root.task_id, plan_fingerprint=plan.fingerprint,
+             approval_request_id=receipt.request_id, approval_recorded=True,
+             workflow_received=True, provider_acceptance="not_asserted")
         return
     plan = checked_ui(instance, task_id, fingerprint)
     request = UIAnalysisRequest.model_validate_json(
@@ -833,11 +923,21 @@ def inspect(task_id: str, local: bool = typer.Option(False, "--local")):
             "model_calls": selection_catalog.model_calls,
         }
     editing_view = _editing_view(instance, plan) if editing else None
+    # A restarted workflow can leave an older, higher-sequence projection.
+    # Keep that historical snapshot intact, but report the current editing
+    # domain state once analysis is available. This does not claim live
+    # Temporal status or reconcile any unknown operation.
+    use_editing_state = editing and not _needs_analysis(instance, plan)
+    status_source = "editing_ledger" if use_editing_state else (
+        "local_projection" if local or editing else "live"
+    )
     emit(
         "inspect",
-        current["state"] if current else "planned",
+        editing_view["state"] if use_editing_state else current["state"] if current else "planned",
+        status_source=status_source,
         task_id=task_id,
         plan_fingerprint=plan.fingerprint,
+        request_profile=_vlm_request_profile(instance, request),
         task=current,
         phase=phase,
         source="local_projection" if local or editing else "live",

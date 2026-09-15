@@ -7,7 +7,7 @@ from letsaigc.pipelines.contracts import Capability, Submission
 from letsaigc.pipelines.errors import OutcomeUnknown, PipelineError
 from letsaigc.pipelines.migrations import migrate_ui_ledger
 from letsaigc.pipelines.service import PipelineService
-from letsaigc.schemas.pipeline import ApprovalRequest, Cost
+from letsaigc.schemas.pipeline import ApprovalRequest, Cost, operation_id
 from letsaigc.schemas.ui import UIAnalysisRequest, UIObservation, UIStepBinding
 
 
@@ -30,6 +30,44 @@ class Backend:
 
     def collect(self, submission):
         return [("analysis", b'{"elements":[]}', "application/json")]
+
+
+class PreparationFailureBackend(Backend):
+    def __init__(self):
+        super().__init__()
+        self.prepare_calls = 0
+
+    def prepare(self, operation_id, arguments):
+        self.prepare_calls += 1
+        raise PipelineError("input_limit")
+
+
+class PreparedUnknownBackend(Backend):
+    def __init__(self):
+        super().__init__()
+        self.prepare_calls = 0
+
+    def prepare(self, operation_id, arguments):
+        self.prepare_calls += 1
+        return {"prepared_marker": "local-only"}
+
+    def submit(self, operation_id, arguments):
+        assert arguments["prepared"] == {"prepared_marker": "local-only"}
+        return super().submit(operation_id, arguments)
+
+
+class TracedUnknownBackend(PreparedUnknownBackend):
+    def submit(self, operation_id, arguments):
+        self.calls += 1
+        error = TimeoutError("PRIVATE_PROVIDER_FAILURE")
+        error.submission_trace = {
+            "schema_version": 1,
+            "operation_id": operation_id,
+            "attempt": 1,
+            "error_category": "read_timeout",
+            "provider_request_id": "req-traced-unknown",
+        }
+        raise error
 
 
 @pytest.fixture(params=[2, 4, 5])
@@ -89,12 +127,60 @@ def test_duplicate_submission_binding_conflict_and_unknown_hold(context):
         with pytest.raises(OutcomeUnknown):
             service.submit_step(plan, binding, Cost(cost_usd=0.2))
     assert backend.calls == 1
+
+
+def test_local_prepare_failure_settles_failed_before_external_boundary(context):
+    service, plan, binding, _ = context
+    backend = PreparationFailureBackend()
+    service.backends["ui.analyze"] = backend
+    authorize(service, plan)
+
+    operation = service.submit_step(plan, binding, Cost(cost_usd=0.2))
+    assert operation.state == "failed"
+    assert operation.result == {"preparation_failed": True, "error_code": "input_limit", "budget_exceeded": False}
+    assert backend.prepare_calls == 1 and backend.calls == 0
+    assert service.ledger.usage(plan.task_id)["unsettled"] == Cost()
+    assert service.submit_step(plan, binding, Cost(cost_usd=0.2)) == operation
+    assert backend.prepare_calls == 1 and backend.calls == 0
+
+
+def test_provider_failure_after_preparation_remains_unknown_without_retry(context):
+    service, plan, binding, _ = context
+    backend = PreparedUnknownBackend()
+    backend.lose_receipt = True
+    service.backends["ui.analyze"] = backend
+    authorize(service, plan)
+
+    with pytest.raises(OutcomeUnknown):
+        service.submit_step(plan, binding, Cost(cost_usd=0.2))
+    assert backend.prepare_calls == 1 and backend.calls == 1
+    assert service.ledger.get(operation_id(plan, binding.step_id, 0)).state == "outcome_unknown"
+    with pytest.raises(OutcomeUnknown):
+        service.submit_step(plan, binding, Cost(cost_usd=0.2))
+    assert backend.prepare_calls == 1 and backend.calls == 1
     assert service.ledger.usage(plan.task_id)["unsettled"] == Cost(cost_usd=0.2)
     alternate = service.artifacts.put(plan.task_id, "other", b"other", role="canonical")
     changed = binding.model_copy(update={"inputs": [alternate]})
     with pytest.raises(PipelineError) as caught:
         service.submit_step(plan, changed, Cost(cost_usd=0.2))
     assert caught.value.code == "step_conflict"
+    assert backend.calls == 1
+
+
+def test_unknown_submission_trace_is_merged_without_retry_or_exception_text(context):
+    service, plan, binding, _ = context
+    backend = TracedUnknownBackend()
+    service.backends["ui.analyze"] = backend
+    authorize(service, plan)
+
+    with pytest.raises(OutcomeUnknown):
+        service.submit_step(plan, binding, Cost(cost_usd=0.2))
+    operation = service.ledger.get(operation_id(plan, binding.step_id, 0))
+    assert operation.state == "outcome_unknown"
+    assert operation.result["submission_trace"]["error_category"] == "read_timeout"
+    assert operation.provider_request_id == "req-traced-unknown"
+    assert "PRIVATE_PROVIDER_FAILURE" not in str(operation.result)
+    assert service.submit_step(plan, binding, Cost(cost_usd=0.2)) == operation
     assert backend.calls == 1
 
 

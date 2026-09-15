@@ -138,6 +138,10 @@ class Ledger:
                 raise PipelineError("unknown_parent", "Parent task or root budget group is unknown")
             if self._root_task_id(db, parent_task_id) != root_task_id or parent_task_id == plan.task_id:
                 raise PipelineError("child_cycle", "Child parent does not belong to the same root")
+            if plan.parameters.get("cloud_retry"):
+                from .cloud_retry import validate_retry
+
+                validate_retry(db, plan)
             old = db.execute("SELECT fingerprint FROM tasks WHERE task_id=?", (plan.task_id,)).fetchone()
             if old and old["fingerprint"] != plan.fingerprint:
                 raise PipelineError("task_conflict", "Task ID already belongs to a different immutable plan")
@@ -230,6 +234,12 @@ class Ledger:
         root_task = db.execute("SELECT cancelled FROM tasks WHERE task_id=?", (root,)).fetchone()
         if not group or group["submission_gate"] != "open" or (root_task and root_task["cancelled"]):
             raise PipelineError("cancelled", "The root pipeline is cancelling")
+        from .cloud_retry import retry_history, validate_retry
+
+        plan = PipelinePlan.model_validate_json(db.execute(
+            "SELECT plan FROM tasks WHERE task_id=?", (task_id,)).fetchone()["plan"])
+        retry = validate_retry(db, plan)
+        retry_tasks = {item.base_task_id for item in retry_history(db, plan)} if retry else set()
         pending = db.execute(
             """SELECT task_id FROM ui_child_bindings
             WHERE root_task_id=? AND task_id<>?
@@ -245,6 +255,10 @@ class Ledger:
 
         replaceable = []
         for row in pending:
+            if row["task_id"] in retry_tasks:
+                # Explicit approval accepts another charge, not settlement or
+                # supersession of the old unknown. Preserve its entire row.
+                continue
             older = self._child_binding(db, row["task_id"])
             older_sources = set(json.loads(older["source_chain"]))
             if not current_sources.intersection(older_sources):
@@ -496,6 +510,10 @@ class Ledger:
             root_budget = budget
             if root_plan_row is not None:
                 root_budget = PipelinePlan.model_validate_json(root_plan_row["plan"]).envelope.budget
+            if aggregate_children:
+                from .cloud_retry import effective_budget
+
+                root_budget = effective_budget(db, root_task_id)
             if (
                 spent["cost"] + reserve_cost > units(root_budget.max_total_cost_usd, limit=True)
                 or spent["gpu"] + reserve_gpu > units(root_budget.max_total_gpu_minutes, limit=True)
@@ -697,15 +715,69 @@ class Ledger:
                 db.execute("UPDATE resources SET uncertain=1 WHERE operation_id=?", (key,))
                 self._sync_charge(db, key, "outcome_unknown")
 
-    def uncertain(self, key: str) -> OperationRecord:
+    def uncertain(
+        self, key: str, evidence: dict | None = None, *, provider_request_id: str | None = None
+    ) -> OperationRecord:
+        if evidence is not None:
+            validate_payload(evidence)
+        if provider_request_id is not None:
+            validate_payload(provider_request_id)
         with self.transaction() as db:
+            row = db.execute("SELECT * FROM operations WHERE operation_id=?", (key,)).fetchone()
+            if row is None:
+                raise PipelineError("unknown_operation")
+            if row["state"] in {"succeeded", "failed"}:
+                return self._record(row)
+            if row["provider_request_id"] and provider_request_id and row["provider_request_id"] != provider_request_id:
+                raise PipelineError("request_conflict", "Operation already references another provider request")
+            result = json.loads(row["result"])
+            for name, value in (evidence or {}).items():
+                if name in result and result[name] != value:
+                    raise PipelineError("evidence_conflict", "Operation already contains different evidence")
+                result[name] = value
             db.execute(
-                """UPDATE operations SET state='outcome_unknown'
+                """UPDATE operations
+                SET state='outcome_unknown',provider_request_id=COALESCE(provider_request_id,?),result=?
                 WHERE operation_id=? AND state NOT IN ('succeeded','failed')""",
-                (key,),
+                (provider_request_id, canonical_json(result), key),
             )
             db.execute("UPDATE resources SET uncertain=1 WHERE operation_id=?", (key,))
             self._sync_charge(db, key, "outcome_unknown")
+        return self.get(key)
+
+    def confirm_resource_release(self, key: str, resource: str, proof: dict) -> OperationRecord:
+        """Release physical ownership without rewriting uncertain accounting.
+
+        A provider can prove that a local device was released even when its
+        terminal receipt cannot settle cost or GPU usage.  Persist that proof
+        on the original operation and unlock only the matching resource; the
+        operation state and all reserved/actual amounts remain unchanged.
+        """
+
+        validate_payload(resource)
+        validate_payload(proof)
+        if proof.get("released") is not True:
+            raise PipelineError("resource_release_unknown")
+        with self.transaction() as db:
+            row = db.execute("SELECT * FROM operations WHERE operation_id=?", (key,)).fetchone()
+            if row is None:
+                raise PipelineError("unknown_operation")
+            if row["state"] not in {"submitted", "running", "outcome_unknown"}:
+                raise PipelineError("operation_state")
+            result = json.loads(row["result"])
+            previous = result.get("resource_release")
+            owner = db.execute("SELECT operation_id FROM resources WHERE resource=?", (resource,)).fetchone()
+            if owner is None:
+                if previous == proof:
+                    return self._record(row)
+                raise PipelineError("resource_scope")
+            if owner["operation_id"] != key:
+                raise PipelineError("operation_scope")
+            if previous is not None and previous != proof:
+                raise PipelineError("evidence_conflict")
+            result["resource_release"] = proof
+            db.execute("UPDATE operations SET result=? WHERE operation_id=?", (canonical_json(result), key))
+            db.execute("DELETE FROM resources WHERE resource=? AND operation_id=?", (resource, key))
         return self.get(key)
 
     def finish(self, key: str, actual: Cost, result: dict, *, failed: bool = False) -> OperationRecord:
@@ -742,6 +814,10 @@ class Ledger:
                 root_plan = PipelinePlan.model_validate_json(
                     db.execute("SELECT plan FROM tasks WHERE task_id=?", (root,)).fetchone()["plan"]
                 )
+                from .cloud_retry import effective_budget
+
+                root_plan = root_plan.model_copy(update={"envelope": root_plan.envelope.model_copy(
+                    update={"budget": effective_budget(db, root)})})
                 child_plan = PipelinePlan.model_validate_json(plan_row["plan"])
                 previous = db.execute(
                     """SELECT COALESCE(SUM(o.actual_cost),0) cost,COALESCE(SUM(o.actual_gpu),0) gpu
@@ -805,6 +881,12 @@ class Ledger:
     @staticmethod
     def _ui_gate(db, task_id: str, *, except_key: str | None = None) -> None:
         root = Ledger._root_task_id(db, task_id)
+        from .cloud_retry import retry_history, validate_retry
+
+        plan_row = db.execute("SELECT plan FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+        plan = PipelinePlan.model_validate_json(plan_row["plan"])
+        retry = validate_retry(db, plan, require_consumed=True)
+        retry_operations = {item.base_operation_id for item in retry_history(db, plan)} if retry else set()
         if db.execute("PRAGMA user_version").fetchone()[0] >= 5:
             gate = db.execute(
                 "SELECT submission_gate,stop_reason FROM ui_budget_groups WHERE root_task_id=?", (root,)
@@ -832,6 +914,8 @@ class Ledger:
                 "running",
                 "outcome_unknown",
             }:
+                if row["operation_id"] in retry_operations and row["state"] == "outcome_unknown":
+                    continue
                 raise PipelineError("awaiting_reconciliation", "Resolve the current operation before new consumption")
 
     @staticmethod
@@ -1031,6 +1115,12 @@ class Ledger:
                 )
             db.execute("DELETE FROM resources WHERE operation_id=?", (key,))
             return self._record(db.execute("SELECT * FROM operations WHERE operation_id=?", (key,)).fetchone())
+
+    def effective_budget(self, root_task_id):
+        from .cloud_retry import effective_budget
+
+        with self.transaction() as db:
+            return effective_budget(db, root_task_id)
 
     def usage(self, task_id: str, *, include_children: bool = False) -> dict[str, Cost]:
         buckets = {"actual": [0, 0], "reserved": [0, 0], "unsettled": [0, 0]}

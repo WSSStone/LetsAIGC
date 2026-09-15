@@ -1,5 +1,7 @@
 # Implementation Plan: 游戏 UI 解析工作流
 
+> 2026-09-14 增量：T030 采用[单图编辑 MVP 范围](../../docs/t030-mvp-scope.md)。云端路线以可选 policy artifact 冻结到新根请求，在既有编辑 Temporal 工作流内执行两个独立批准的 child；不改变历史请求默认序列化、账本版本或 Comfy 参数。临时程序成功尚不等于产品 LIVE 验收。
+
 **Feature ID**: `013-game-ui-analysis` | **Date**: 2026-09-04 | **Spec**: [spec.md](spec.md)  
 **Working Branch**: `dev-game-ui` | **Baseline**: `7b91c34deb23064aaa6b492ce105956a59b47b71`  
 **Status**: 2026-09-06增量修订：T001—T018预览已完成；T043—T050人工校正预览已实施并有三例浏览器/恢复证据，T019先行合同与T020父子预算已实施；T021—T042仍待实施（T035已做数据缺项审计）。规划修订的只读Analyze约定不变。

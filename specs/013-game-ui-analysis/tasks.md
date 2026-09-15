@@ -2,7 +2,7 @@
 
 **Feature**: 013-game-ui-analysis | **Date**: 2026-09-04 | **Branch**: dev-game-ui  
 **Baseline**: `7b91c34deb23064aaa6b492ce105956a59b47b71`  
-**状态**：50项中T001—T027与T043—T050共35项已完成；其余15项仍待实施。11项[LIVE]中T010、T017、T018、T024、T027、T049已验收，其余5项未验收。所有环境命令继续使用conda run；历史mamba阻断、旧失败与unknown证据保留。
+**状态（2026-09-15）**：50项中T001—T030与T043—T050共38项已完成；其余12项仍待实施。11项[LIVE]中T010、T017、T018、T024、T027、T030、T049已验收，其余4项未验收。T030按用户确认的单图MVP范围完成，原扩展矩阵未标记通过。所有环境命令继续使用conda run；历史mamba阻断、旧失败与unknown证据保留。
 
 ## 执行约定
 
@@ -77,7 +77,9 @@
 - [X] T027 [US3] [LIVE] 只读核验锁定ComfyUI的object_info与原生节点/四工件，运行旧编译金样和本地像素合同；不提交生成。缺已部署服务保留未完成，作为真实补图前能力门槛。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_inpaint_object_info.py`、`C:/Programs/LetsAIGC/.local/validation/ui-analysis/inpaint-object-info.json`。（依赖：T026）
 - [X] T028 [US3] 运行T019选择/子批准合同及review版本变更/旧child失效测试并接线decompose/reconstruct：推荐选择冻结后直接展示具体分割计划，批准同时确认范围；分割后最终image/mask再形成补图批准。SAM/Comfy顺序交接并确认释放，选择候选替换使旧待执行批准失效；parse仍可独立完成。 文件：`C:/Programs/LetsAIGC/src/letsaigc/execution/temporal/ui_workflow.py`、`C:/Programs/LetsAIGC/src/letsaigc/execution/temporal/ui_activities.py`、`C:/Programs/LetsAIGC/src/letsaigc/execution/temporal/worker.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/cli.py`、`C:/Programs/LetsAIGC/tests/integration/test_ui_reconstruction.py`。（依赖：T021、T024、T027）
 - [X] T029 [US3] 接入人工review的显式局部重读/复核，结果只作建议、采纳才改版本，锁定字段不被覆盖；先写四种枚举局部修订与依赖闭包测试，再实现reread_text/adjust_segmentation/review_region/regenerate。未变ID/产物复用，自动可调仅prompt/negative_prompt/seed；新mask/model/recipe须新批准，沿同一编辑链/根组计数，不重置预算，失败版本保留。 文件：`C:/Programs/LetsAIGC/tests/unit/test_ui_revision.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/revision.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/cli.py`。（依赖：T028）
-- [ ] T030 [US3] [LIVE] 补验SC-017真实局部复核不覆盖锁定字段及review版本绑定，验证真实decompose和scene_background/map_surface补图，覆盖默认提案直接批准、候选/高级覆盖、最终mask批准、区外像素一致、有限修订及GPU受理后一次恢复观察。保存实际质量值和谱系，复用公共故障证据；同步编辑操作指南，缺真值不报背景恢复准确率。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_reconstruction_runtime.py`、`C:/Programs/LetsAIGC/docs/game-ui-analysis.md`、`C:/Programs/LetsAIGC/.local/validation/ui-analysis/editing-runtime.json`。（依赖：T029）
+- [X] T030 [US3] [LIVE] **2026-09-14 MVP 修订，2026-09-15 验收完成**：复用一张真实截图的成功解析与确认 review，经产品 `ui plan/execute/inspect` 和 Temporal 跑通选择→VLM 提示词→独立批准 GPT Image 2→保存并由用户查看原始生成局部 PNG；保留 Comfy 可选路径和历史成果。验证基本失败可理解、不自动重复收费和实际费用累计；不要求手工 SHA 验收或重复真实故障注入。完整范围及扩展缺项见 [T030 MVP 范围](../../docs/t030-mvp-scope.md)，成功证据及复核方法见 [Windows 收尾交接](../../docs/t030-windows-closeout.md)。产品真实 PNG 已获用户确认；完整回归792 passed、24 skipped，ruff通过，旧unknown保留。（依赖：T029）
+
+  原 T030 验收要求保留为扩展待验收记录：SC-017真实局部复核/锁定字段及review版本绑定；真实decompose与scene_background/map_surface完整矩阵；默认提案、候选/高级覆盖；最终mask批准和区外像素一致（仅精确合成路线）；有限修订及GPU受理后恢复观察。未完成项不因MVP收敛被标记通过，也不要求云端无mask生成满足像素精确合成合同。原证据复核器 `tests/integration/test_ui_reconstruction_runtime.py` 及历史 `.local` 包保留。
 
 ## Phase 5：两种来源的顺序批次（US5）
 

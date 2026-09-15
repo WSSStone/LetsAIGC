@@ -3,8 +3,8 @@
 from temporalio import activity
 
 from ...pipelines.errors import PipelineError
-from ...schemas.pipeline import Cost, OperationRecord, operation_id
-from ...ui_analysis.editing import EditingExecution, EditingPreparation
+from ...schemas.pipeline import Cost, OperationRecord, PipelinePlan, operation_id
+from ...ui_analysis.editing import EditingExecution, EditingPreparation, _release_confirmed
 from .ui_activities import UIActivities
 from .ui_messages import UIEditingActivityInput
 
@@ -43,6 +43,55 @@ class UIEditingActivities(UIActivities):
             if request is None or (request.task_id, request.plan_fingerprint) != (child.task_id, child.fingerprint):
                 raise PipelineError("approval_mismatch")
             return self.service.ledger.consume_approval(request)
+
+        return self.invoke(argument, consume)
+
+    @activity.defn(name="ui.edit.approval-target.v1")
+    def edit_approval_target(self, argument: UIEditingActivityInput) -> PipelinePlan:
+        def consume(root):
+            receipt = argument.approval
+            if receipt is None:
+                raise PipelineError("approval_required")
+            child = self.service.checked_plan(receipt.task_id, receipt.plan_fingerprint)
+            if self.editing.child_root(child) != root.task_id:
+                raise PipelineError("operation_scope")
+            self.editing.validate_current(child)
+            if child.workflow_type in {"ui_cloud_guide", "ui_cloud_inpaint"}:
+                from ...ui_analysis.cloud_editing import validate_cloud_target
+
+                validate_cloud_target(self.service, child)
+            if argument.revision_ref is not None:
+                from ...ui_analysis.revision_execution import RevisionExecution
+
+                prepared = RevisionExecution(self.service).prepare(root, argument.revision_ref)
+                if prepared.child != child:
+                    raise PipelineError("operation_scope")
+            if receipt.decision == "approve" and not self.service.ledger.list_operations(child.task_id):
+                usage = self.service.ledger.usage(root.task_id, include_children=True)
+                limits = self.service.ledger.effective_budget(root.task_id)
+                if child.parameters.get("cloud_retry"):
+                    from ...schemas.ui_cloud import CloudImageRetry
+
+                    limits = CloudImageRetry.model_validate(child.parameters["cloud_retry"]).budget_after
+                budget = child.envelope.budget
+                held_cost = sum(value.cost_usd for value in usage.values())
+                held_gpu = sum(value.gpu_minutes for value in usage.values())
+                if (held_cost + budget.max_iteration_cost_usd > limits.max_total_cost_usd + 1e-9
+                        or held_gpu + budget.max_iteration_gpu_minutes > limits.max_total_gpu_minutes + 1e-9):
+                    raise PipelineError("budget_exceeded")
+            if child.workflow_type == "ui_inpaint":
+                parent = self.service.ledger.plan(child.parameters["parent_task_id"])
+                if parent.workflow_type != "ui_segmentation" or self.editing.child_root(parent) != root.task_id:
+                    raise PipelineError("operation_scope")
+                self.service.checked_plan(parent.task_id, parent.fingerprint)
+                self.editing.validate_current(parent)
+                if not any(op.state == "succeeded" and _release_confirmed(op)
+                           for op in self.service.ledger.list_operations(parent.task_id)):
+                    raise PipelineError("resource_release_unknown")
+            # Existing transaction checks receipt identity, the root gate and
+            # competing in-flight children before replacing pending candidates.
+            self.service.ledger.consume_approval(receipt)
+            return child
 
         return self.invoke(argument, consume)
 
@@ -125,6 +174,7 @@ class UIEditingActivities(UIActivities):
         return [
             self.edit_prepare,
             self.edit_approval,
+            self.edit_approval_target,
             self.edit_submit,
             self.edit_observe,
             self.edit_collect,

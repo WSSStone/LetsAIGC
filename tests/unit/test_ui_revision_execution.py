@@ -9,7 +9,7 @@ import pytest
 from PIL import Image
 
 from letsaigc.pipelines.contracts import Capability, Submission
-from letsaigc.pipelines.errors import PipelineError
+from letsaigc.pipelines.errors import OutcomeUnknown, PipelineError
 from letsaigc.pipelines.service import PipelineService
 from letsaigc.schemas.pipeline import ApprovalRequest, ArtifactRef, Cost, canonical_json
 from letsaigc.schemas.ui import UIAnalysisRequest, UIObservation, UISegmentationRequest
@@ -228,6 +228,20 @@ class _ReadyInpaint(_ReadySAM):
         return [("image", _png(), "image/png")]
 
 
+class _PreparationFailureInpaint(_ReadyInpaint):
+    def prepare(self, _operation_id, _arguments):
+        raise PipelineError("model_not_ready")
+
+    def submit(self, _operation_id, _arguments):
+        raise AssertionError("preparation failure must not reach provider submission")
+
+
+class _UnknownInpaint(_ReadyInpaint):
+    def submit(self, _operation_id, _arguments):
+        self.submit_calls += 1
+        raise TimeoutError("synthetic provider uncertainty")
+
+
 def _png_image(image):
     stream = io.BytesIO()
     image.save(stream, format="PNG", optimize=False)
@@ -408,6 +422,65 @@ def test_regenerate_creates_new_masked_child_and_terminal_manifest(tmp_path):
     payload = json.loads(service.artifacts.read(manifest))
     assert payload["child_task_id"] == planned.child.task_id
     assert payload["suggestions"][0]["kind"] == "revision_candidate"
+
+
+def test_regenerate_replaces_only_a_zero_cost_preparation_failure(tmp_path):
+    service, root = _root(tmp_path, gpu=True)
+    snapshot = service.artifacts.put("root", "sam-model", b"sam", role="model_snapshot")
+    editing = EditingExecution(service)
+    segment = editing.prepare(root, model_snapshot_ref=snapshot).child
+    assert segment is not None
+    _approve_and_complete(service, segment, _ReadySAM(service))
+    initial_inpaint = editing.prepare(root).child
+    assert initial_inpaint is not None
+    failed = _approve_and_complete(service, initial_inpaint, _PreparationFailureInpaint(service))
+    assert failed.state == "failed"
+    assert failed.provider_request_id is None
+    assert failed.reserved == Cost()
+    assert failed.actual == Cost()
+    assert failed.result["preparation_failed"] is True
+    assert failed.result["error_code"] == "model_not_ready"
+    assert failed.result["usage_verdict"] == "within_budget"
+
+    planned = RevisionExecution(service).plan(
+        _request(initial_inpaint, "regenerate", ["element-1"], {"seed": 9})
+    )
+    assert planned.child is not None
+    assert planned.child.task_id != initial_inpaint.task_id
+    assert service.ledger.get(failed.operation_id) == failed
+
+
+def test_regenerate_does_not_retry_an_unknown_provider_submission(tmp_path):
+    service, root = _root(tmp_path, gpu=True)
+    snapshot = service.artifacts.put("root", "sam-model", b"sam", role="model_snapshot")
+    editing = EditingExecution(service)
+    segment = editing.prepare(root, model_snapshot_ref=snapshot).child
+    assert segment is not None
+    _approve_and_complete(service, segment, _ReadySAM(service))
+    initial_inpaint = editing.prepare(root).child
+    assert initial_inpaint is not None
+    approval = ApprovalRequest(
+        request_id="approve-" + initial_inpaint.task_id,
+        task_id=initial_inpaint.task_id,
+        plan_fingerprint=initial_inpaint.fingerprint,
+        decision="approve",
+    )
+    service.ledger.record_approval(approval, actor="unit-test")
+    service.ledger.consume_approval(approval)
+    backend = _UnknownInpaint(service)
+    service.backends[backend.capability.id] = backend
+    with pytest.raises(OutcomeUnknown):
+        service.submit_step(initial_inpaint, editing.binding(initial_inpaint), Cost(gpu_minutes=1))
+    operation = service.ledger.list_operations(initial_inpaint.task_id)[0]
+    assert operation.state == "outcome_unknown"
+    assert backend.submit_calls == 1
+
+    with pytest.raises(PipelineError) as exc_info:
+        RevisionExecution(service).plan(
+            _request(initial_inpaint, "regenerate", ["element-1"], {"seed": 9})
+        )
+    assert exc_info.value.code == "dependency_not_ready"
+    assert backend.submit_calls == 1
 
 
 def test_revision_rejects_completed_child_after_selection_supersession(tmp_path):

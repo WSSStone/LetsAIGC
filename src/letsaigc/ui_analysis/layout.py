@@ -1,5 +1,7 @@
 """Geometry-based layout fusion; model links remain suggestions, OCR remains original."""
 
+import math
+
 from ..agent.ui_analyzer import validate_analysis
 from ..schemas.pipeline import digest
 from .coordinates import checked_box, checked_polygon, iou, map_box
@@ -45,6 +47,12 @@ def build_layout(canonical, view, texts, analysis, *, previous=None, revision=0)
     candidates, aliases = [], {}
     for item in sorted(analysis["elements"], key=lambda element: (element["kind"], element["bbox"], element["id"])):
         box = list(map_box(item["bbox"], view.inverse))
+        # Inverse scaling can put an exact image edge a few ULPs outside.
+        # Snap only numerical noise; genuine out-of-bounds boxes still fail.
+        for index, limit in enumerate((canonical.width, canonical.height) * 2):
+            for edge in (0, limit):
+                if math.isclose(box[index], edge, rel_tol=0, abs_tol=4 * math.ulp(float(limit))):
+                    box[index] = float(edge)
         checked_box(box, canonical.width, canonical.height)
         duplicate = next(
             (old for old in candidates if old["kind"] == item["kind"] and iou(old["bbox"], box) >= 0.85), None

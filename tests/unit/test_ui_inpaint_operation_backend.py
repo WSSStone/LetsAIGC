@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib.util
 import io
@@ -14,7 +15,7 @@ from PIL import Image
 import letsaigc.pipelines.ui_inpaint as ui_inpaint_module
 from letsaigc.backends.comfy import ComfyBackend
 from letsaigc.comfy.client import ComfyClient
-from letsaigc.errors import RuntimeExecutionError
+from letsaigc.errors import ReadinessError, RuntimeExecutionError
 from letsaigc.pipelines.contracts import Submission
 from letsaigc.pipelines.errors import PipelineError
 from letsaigc.pipelines.ui_inpaint import UIInpaintOperationBackend
@@ -162,6 +163,16 @@ def _backend(tmp_path: Path, *, zero_mask: bool = False, canonical: Image.Image 
     return UIInpaintOperationBackend(ledger=Ledger(), artifacts=artifacts, backend=native), masked, artifacts, plan
 
 
+def _object_info_with_dynamic_images(backend, image_choices: list[str]) -> dict:
+    object_info = backend.backend.client.object_info()
+    object_info["LoadImage"] = {
+        "python_module": "comfy",
+        "input": {"required": {"image": [list(image_choices), {"image_upload": True}]}},
+        "output": ["IMAGE", "MASK"],
+    }
+    return object_info
+
+
 def test_exact_prepared_pair_is_checked_before_provider_use(tmp_path: Path):
     backend, plan, artifacts, _child = _backend(tmp_path)
     wrong = artifacts.put(
@@ -220,6 +231,75 @@ def test_preflight_reads_frozen_artifacts_with_read_only_native_probes(tmp_path:
     assert result["ready"] is True
     assert result["prepared_size"] == [8, 8]
     assert result["canonical_size"] == [16, 12]
+
+
+def test_preflight_accepts_inert_upload_handles_without_mutating_live_object_info(tmp_path: Path):
+    backend, request, _artifacts, _child = _backend(tmp_path)
+    object_info = _object_info_with_dynamic_images(backend, ["existing/input.png"])
+    original = copy.deepcopy(object_info)
+
+    backend._validate_native_object_info(request, object_info)
+
+    assert object_info == original
+
+
+def test_preflight_still_rejects_missing_native_node(tmp_path: Path):
+    backend, request, _artifacts, _child = _backend(tmp_path)
+    object_info = _object_info_with_dynamic_images(backend, [])
+    del object_info["SaveImage"]
+
+    with pytest.raises(ReadinessError, match="missing required node: SaveImage"):
+        backend._validate_native_object_info(request, object_info)
+
+
+def test_preflight_still_rejects_model_enum_mismatch(tmp_path: Path):
+    backend, request, _artifacts, _child = _backend(tmp_path)
+    object_info = _object_info_with_dynamic_images(backend, [])
+    object_info["CheckpointLoaderSimple"]["input"] = {
+        "required": {"ckpt_name": [["another-model.safetensors"]]}
+    }
+
+    with pytest.raises(ReadinessError, match="enum input mismatch for ckpt_name"):
+        backend._validate_native_object_info(request, object_info)
+
+
+def test_preflight_still_rejects_native_port_mismatch(tmp_path: Path):
+    backend, request, _artifacts, _child = _backend(tmp_path)
+    object_info = _object_info_with_dynamic_images(backend, [])
+    object_info["LoadImage"]["output"] = ["LATENT", "MASK"]
+    object_info["ImageToMask"]["input"] = {
+        "required": {"image": ["IMAGE"], "channel": [["red", "green", "blue", "alpha"]]}
+    }
+
+    with pytest.raises(ReadinessError, match="port type mismatch for image"):
+        backend._validate_native_object_info(request, object_info)
+
+
+def test_real_compile_still_rejects_upload_handle_missing_from_live_enum(tmp_path: Path):
+    backend, request, artifacts, _child = _backend(tmp_path)
+    object_info = _object_info_with_dynamic_images(backend, ["existing/input.png", "existing/mask.png"])
+
+    with pytest.raises(ReadinessError, match="enum input mismatch for image"):
+        backend.backend.compiler.compile(
+            request,
+            uploaded_images=["new/input.png"],
+            uploaded_mask="new/mask.png",
+            trusted_artifacts=artifacts,
+            trusted_sources=backend.backend.trusted_sources,
+            object_info=object_info,
+        )
+
+
+def test_native_backend_binds_only_trusted_upload_handles_to_copied_dynamic_enum(tmp_path: Path):
+    backend, _request, _artifacts, _child = _backend(tmp_path)
+    object_info = _object_info_with_dynamic_images(backend, [])
+    original = copy.deepcopy(object_info)
+    handles = ["letsaigc-agent/session/task/image.png", "letsaigc-agent/session/task/mask.png"]
+
+    bound = ComfyBackend._object_info_with_upload_handles(object_info, handles)
+
+    assert object_info == original
+    assert bound["LoadImage"]["input"]["required"]["image"][0] == handles
 
 
 def test_approved_noop_submit_collect_release_uses_native_backend(tmp_path: Path):
@@ -354,7 +434,51 @@ def test_native_release_waits_for_empty_queue_and_zero_cuda_allocation(monkeypat
     result = client.release_models(timeout_seconds=0.2, poll_seconds=0)
     assert result["released"] is True
     assert result["devices"][0]["torch_vram_allocated"] == 0
+    assert result["cuda_allocated_bytes"] == 0
+    assert result["model_cuda_allocated_bytes"] == 0
+    assert result["release_basis"] == "zero_active_cuda"
     assert posts == [("http://127.0.0.1:8188/free", {"unload_models": True, "free_memory": True})]
+
+
+def test_native_release_accepts_only_stable_bounded_runtime_residual(monkeypatch):
+    client = ComfyClient("http://127.0.0.1:8188", timeout=0.2)
+    monkeypatch.setattr(
+        client,
+        "queue",
+        lambda: {"queue_running": [], "queue_pending": []},
+    )
+    samples = []
+
+    def stats():
+        samples.append(True)
+        return {
+            "system": {"comfyui_version": "0.34.2"},
+            "devices": [
+                {
+                    "type": "cuda",
+                    "index": 0,
+                    "name": "cuda:0 test",
+                    "torch_vram_total": 33_554_432,
+                    "torch_vram_free": 23_986_176,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(client, "system_stats", stats)
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *args, **kwargs: httpx.Response(200, request=httpx.Request("POST", args[0])),
+    )
+    result = client.release_models(timeout_seconds=0.2, poll_seconds=0)
+    assert len(samples) >= 2
+    assert result["released"] is True
+    assert result["cuda_allocated_bytes"] == 9_568_256
+    assert result["model_cuda_allocated_bytes"] == 0
+    assert result["runtime_cuda_residual_bytes"] == 9_568_256
+    assert result["release_basis"] == "stable_bounded_runtime_residual"
+    assert result["stable_samples"] == 2
+    assert result["devices"][0]["torch_vram_allocated"] == 9_568_256
 
 
 def test_native_release_rejects_malformed_cuda_stats(monkeypatch):

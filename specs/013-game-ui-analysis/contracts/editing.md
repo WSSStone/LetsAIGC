@@ -1,5 +1,25 @@
 # T019 编辑与父子边界合同
 
+## 2026-09-15 显式云端生图重试
+
+`CloudEditRequest.retry` 可选，历史请求缺省为空。非空时须为 `cloud_inpaint`，同时绑定
+`base_task_id/base_operation_id/budget_before/budget_after` 并进入新 child 指纹。
+同根最多两次串联重试：复用原 guidance/image/生成 profile/selection，禁止分叉、第三次重试和替代根。
+后续重试要求前次已消费批准且调用以 unknown 结束，并显式冻结新单次预算；只可调整预算字段，
+模型、提示词和输入不能借重试更换。前次未知费用继续累计，不能从原根预算重新起算。
+只有具体批准被消费后才增加一次生图预算及一个修订计数额度，原 unknown 预留不释放。
+保留既有 v5 表结构；额度由不可变计划和已消费批准推导，原根请求/指纹不修改。
+
+## 2026-09-14 可选云端补图增量
+
+新根 `model_bindings.cloud_inpaint` 冻结 `CloudEditPolicy`；缺少该绑定继续原 SAM/Comfy 路线。
+已确认 review/成功自动布局和选择零推理复用，随后 `cloud_guide/ui.cloud_guide` 与
+`cloud_inpaint/ui.cloud_inpaint` 两个根直属 child 顺序执行，共用根预算。
+生图 child 仅在提示词成功后创建，绑定实际 guidance、512×512 上下文图、指令、selection 版本、模型和预算。
+每个 child 独立批准；guide 批准不授权生图。未知操作不重发，未消耗的批准不能更换输入。
+云端不使用 SAM、mask 或 CUDA；交付原始 1024×1024 generated 局部 PNG，不自动 canonical 拼回。
+原 MaskedGenerationPlan v2 与像素保留合同仅继续约束 Comfy 路线。范围见[T030 MVP](../../../docs/t030-mvp-scope.md)。
+
 当前实施状态（2026-09-07）：T020—T027已验收，含Windows固定样本SAM及Mac原生ComfyUI节点只读验收。T028新增独立编辑Temporal工作流，具体分割和最终image/mask补图分别批准；实际商业UI编辑和正式质量仍由T030及后续LIVE任务验收。
 
 本文件保留T019先行合同并追加后续实现边界。T020 实现 DTO、父子账本与登记，T021 实现选择入口，T025/T026 实现 mask 像素与编译，T028 接线工作流。原 T003 批准拒绝、重复受理、未知费用、单任务预算矩阵继续复用，不复制到每个 provider。

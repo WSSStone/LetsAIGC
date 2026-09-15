@@ -12,9 +12,9 @@ from PIL import Image
 
 from letsaigc.assets.store import ArtifactStore
 from letsaigc.pipelines.errors import PipelineError
-from letsaigc.schemas.pipeline import ArtifactRef, canonical_json
+from letsaigc.schemas.pipeline import MAX_PAYLOAD_BYTES, ArtifactRef, canonical_json
 from letsaigc.vision.base import SAMJob
-from letsaigc.vision.segmentation import _predict, segment_sam_job
+from letsaigc.vision.segmentation import SegmentationBundle, _predict, segment_sam_job
 
 
 def _png(image: Image.Image) -> bytes:
@@ -149,6 +149,62 @@ def test_layout_float_boxes_use_shared_floor_ceil_mapping(tmp_path):
     assert bundle["items"][0]["bbox"] == [1, 0, 4, 3]
 
 
+def test_advanced_bbox_prompt_is_allowed_with_a_frozen_layout(tmp_path):
+    store, job, _ = _job(tmp_path, layout=True)
+    payload = json.loads(store.read(job.selection_ref))
+    payload["sources"][0]["target_regions"] = [{"kind": "bbox", "xyxy": [1, 0, 4, 3]}]
+    selection_ref = store.put(
+        job.task_id,
+        "bbox-selection",
+        canonical_json(payload).encode(),
+        role="selection",
+        source_ids=[job.canonical_ref.artifact_id],
+    )
+    job = SAMJob.model_validate(
+        job.model_dump(mode="json")
+        | {
+            "selection_ref": selection_ref.model_dump(mode="json"),
+            "selection_hash": selection_ref.sha256,
+            "prompts": [{"element_id": "region-1", "box": [1, 0, 4, 3], "points": []}],
+        }
+    )
+
+    bundle = segment_sam_job(_engine(np.ones((3, 5), dtype=np.float32)), store, job)
+
+    assert bundle["status"] == "ready"
+    assert bundle["items"][0]["element_id"] == "region-1"
+
+
+@pytest.mark.parametrize(
+    ("element_id", "box"),
+    [("region-2", [1, 0, 4, 3]), ("region-1", [1, 0, 3, 3])],
+)
+def test_advanced_bbox_prompt_rejects_an_altered_id_or_box(tmp_path, element_id, box):
+    store, job, _ = _job(tmp_path, layout=True)
+    payload = json.loads(store.read(job.selection_ref))
+    payload["sources"][0]["target_regions"] = [{"kind": "bbox", "xyxy": [1, 0, 4, 3]}]
+    selection_ref = store.put(
+        job.task_id,
+        "bbox-selection",
+        canonical_json(payload).encode(),
+        role="selection",
+        source_ids=[job.canonical_ref.artifact_id],
+    )
+    job = SAMJob.model_validate(
+        job.model_dump(mode="json")
+        | {
+            "selection_ref": selection_ref.model_dump(mode="json"),
+            "selection_hash": selection_ref.sha256,
+            "prompts": [{"element_id": element_id, "box": box, "points": []}],
+        }
+    )
+
+    with pytest.raises(PipelineError) as raised:
+        segment_sam_job(_engine(np.ones((3, 5), dtype=np.float32)), store, job)
+
+    assert raised.value.code == "input_changed"
+
+
 def test_keep_element_and_prompt_point_outside_are_rejected(tmp_path):
     store, job, _ = _job(tmp_path, layout=True, keep=True)
     with pytest.raises(PipelineError) as raised:
@@ -189,6 +245,19 @@ def test_model_failure_retains_completed_unknown_asset(tmp_path):
     assert bundle["status"] == "unknown"
     assert bundle["items"][0]["status"] == "unknown"
     assert bundle["items"][0]["reason"] == "segmentation_failed"
+
+
+def test_full_selection_bundle_is_an_artifact_not_a_temporal_payload(tmp_path):
+    store, job, _ = _job(tmp_path)
+    bundle = segment_sam_job(_engine(np.ones((3, 5), dtype=np.float32)), store, job)
+    item = bundle["items"][0]
+    payload = bundle | {
+        "items": [item | {"element_id": f"target-{index}"} for index in range(35)],
+    }
+
+    assert len(canonical_json(payload).encode("utf-8")) > MAX_PAYLOAD_BYTES
+    validated = SegmentationBundle.model_validate(payload)
+    assert len(validated.items) == 35
 
 
 def test_mask_unpack_rejects_an_unexpected_multimask_axis():

@@ -6,8 +6,21 @@ import psutil
 import yaml
 
 from ..agent.responses import DEFAULT_VLM_MODEL, endpoint_fingerprint, load_llm_api_key
-from ..agent.ui_analyzer import EVIDENCE_POLICY, UIAnalysisBackend, UIVLMPolicy
-from ..config import get_setting
+from ..agent.ui_analyzer import (
+    CORRELATION_STRATEGY,
+    DEFAULT_CONNECT_TIMEOUT_SECONDS,
+    DEFAULT_POOL_TIMEOUT_SECONDS,
+    DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_RESPONSE_TRANSPORT,
+    DEFAULT_WRITE_TIMEOUT_SECONDS,
+    EVIDENCE_POLICY,
+    PROVIDER_IMAGE_ENCODING,
+    REASONING_EFFORTS,
+    RESPONSE_TRANSPORTS,
+    UIAnalysisBackend,
+    UIVLMPolicy,
+)
+from ..config import get_int_setting, get_setting
 from ..generation.pricing import calculate_luna_cost, ensure_current, load_pricing
 from ..paths import find_repo_root
 from ..pipelines.contracts import Capability
@@ -22,15 +35,80 @@ def vision_settings():
     return load_ocr_settings()
 
 
+def vlm_request_profile(policy):
+    """Return the non-secret request profile frozen into a plan and its approval view."""
+    return {
+        "model": policy.model,
+        "endpoint_fingerprint": policy.endpoint_fingerprint,
+        "max_output_tokens": policy.max_output_tokens,
+        "evidence_policy": policy.evidence_policy,
+        "schema_profile": (
+            "strict-source-bound-v1" if policy.evidence_policy == EVIDENCE_POLICY else "strict-ui-analysis-v1"
+        ),
+        "reasoning_effort": policy.reasoning_effort,
+        "image_detail": policy.image_detail,
+        "provider_image_encoding": policy.provider_image_encoding,
+        "correlation_strategy": policy.correlation_strategy,
+        "response_transport": policy.response_transport,
+        "connect_timeout_seconds": policy.connect_timeout_seconds,
+        "write_timeout_seconds": policy.write_timeout_seconds,
+        "pool_timeout_seconds": policy.pool_timeout_seconds,
+        "request_timeout_seconds": policy.request_timeout_seconds,
+    }
+
+
 def freeze_models(store, task_id):
     _, lock = vision_settings()
     pricing = load_pricing()
     price_ref = store.put(task_id, "plan", canonical_json(pricing).encode(), role="pricing")
+    reasoning_effort = (get_setting("LLM_VLM_REASONING_EFFORT", "high") or "high").lower()
+    image_detail = (get_setting("LLM_VLM_IMAGE_DETAIL", "high") or "high").lower()
+    response_transport = (
+        get_setting("LLM_VLM_RESPONSE_TRANSPORT", DEFAULT_RESPONSE_TRANSPORT)
+        or DEFAULT_RESPONSE_TRANSPORT
+    ).lower()
+    try:
+        request_timeout_seconds = get_int_setting(
+            "LLM_VLM_REQUEST_TIMEOUT_SECONDS", DEFAULT_REQUEST_TIMEOUT_SECONDS
+        )
+        connect_timeout_seconds = get_int_setting(
+            "LLM_VLM_CONNECT_TIMEOUT_SECONDS", DEFAULT_CONNECT_TIMEOUT_SECONDS
+        )
+        write_timeout_seconds = get_int_setting(
+            "LLM_VLM_WRITE_TIMEOUT_SECONDS", DEFAULT_WRITE_TIMEOUT_SECONDS
+        )
+        pool_timeout_seconds = get_int_setting(
+            "LLM_VLM_POOL_TIMEOUT_SECONDS", DEFAULT_POOL_TIMEOUT_SECONDS
+        )
+    except Exception as exc:
+        raise PipelineError("invalid_plan") from exc
+    if (
+        reasoning_effort not in REASONING_EFFORTS
+        or image_detail not in {"low", "high"}
+        or response_transport not in RESPONSE_TRANSPORTS
+    ):
+        raise PipelineError("invalid_plan")
+    if any(
+        not 1 <= value <= 600
+        for value in (
+            request_timeout_seconds, connect_timeout_seconds, write_timeout_seconds, pool_timeout_seconds
+        )
+    ):
+        raise PipelineError("invalid_plan")
     policy = UIVLMPolicy(
         model=get_setting("LLM_VLM_MODEL", DEFAULT_VLM_MODEL),
         endpoint_fingerprint=endpoint_fingerprint(),
         pricing_ref=price_ref,
         evidence_policy=EVIDENCE_POLICY,
+        reasoning_effort=reasoning_effort,
+        image_detail=image_detail,
+        provider_image_encoding=PROVIDER_IMAGE_ENCODING,
+        correlation_strategy=CORRELATION_STRATEGY,
+        response_transport=response_transport,
+        connect_timeout_seconds=connect_timeout_seconds,
+        write_timeout_seconds=write_timeout_seconds,
+        pool_timeout_seconds=pool_timeout_seconds,
+        request_timeout_seconds=request_timeout_seconds,
     )
     return {
         "ocr": store.put(task_id, "plan", canonical_json(lock).encode(), role="model_lock"),
@@ -137,12 +215,15 @@ class ConfiguredSAMBackend(ConfiguredOCRBackend):
 
 
 def configure(service):
+    from ..pipelines.ui_cloud import UICloudBackend
     from ..pipelines.ui_inpaint import UIInpaintOperationBackend
 
     UIExecution(service)
     service.backends.setdefault("ui.ocr", ConfiguredOCRBackend(service))
     service.backends.setdefault("ui.analyze", UIAnalysisBackend(service.ledger, service.artifacts))
     service.backends.setdefault("ui.segment", ConfiguredSAMBackend(service))
+    for stage in ("cloud_guide", "cloud_inpaint"):
+        service.backends.setdefault("ui." + stage, UICloudBackend(service, stage))
     if "ui.inpaint" not in service.backends:
         service.backends["ui.inpaint"] = UIInpaintOperationBackend(service)
 
@@ -373,6 +454,10 @@ def preflight_child(service, plan):
         from ..pipelines.ui_inpaint import UIInpaintOperationBackend
 
         UIInpaintOperationBackend(service).preflight(plan)
+    elif plan.workflow_type in {"ui_cloud_guide", "ui_cloud_inpaint"}:
+        from ..pipelines.ui_cloud import UICloudBackend
+
+        UICloudBackend(service, plan.parameters["purpose"]).preflight(plan)
     elif plan.workflow_type in {"ui_text_revision", "ui_region_revision"}:
         from .revision_inputs import analysis_context
 

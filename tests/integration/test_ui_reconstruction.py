@@ -484,7 +484,7 @@ def test_release_failure_keeps_unknown_usage_and_retry_reuses_provider_request(t
         ).fetchone() is None
 
 
-def test_real_editing_prepare_builds_resize_padded_inpaint_child_from_sam_bundle(tmp_path):
+def test_real_editing_prepare_builds_resize_padded_inpaint_child_from_sam_bundle(tmp_path, monkeypatch):
     """A ready SAM bundle becomes a validated inpaint child without provider calls."""
 
     from letsaigc.agent.storage import AgentStore
@@ -559,8 +559,10 @@ def test_real_editing_prepare_builds_resize_padded_inpaint_child_from_sam_bundle
     from letsaigc.schemas.agent import MaskedGenerationPlan
 
     masked = MaskedGenerationPlan.model_validate_json(service.artifacts.read(masked_ref))
-    assert masked.image_mask.crop == (0, 0, 20, 20)
-    assert masked.image_mask.width == 24 and masked.image_mask.height == 24
+    assert masked.image_mask.crop == (0, 0, 256, 256)
+    assert masked.image_mask.width == 512 and masked.image_mask.height == 512
+    with Image.open(io.BytesIO(service.artifacts.read(masked.image_mask.canonical_edit_mask_ref))) as edit_mask:
+        assert edit_mask.getbbox() == (0, 0, 20, 20)
     assert masked.image_mask.width % 8 == masked.image_mask.height % 8 == 0
     assert masked.image_mask.canonical_width == 1600
     assert masked.image_mask.canonical_height == 1200
@@ -584,7 +586,18 @@ def test_real_editing_prepare_builds_resize_padded_inpaint_child_from_sam_bundle
     }
     compiler = WorkflowCompiler(AgentStore(tmp_path / "compiled"))
     artifacts = compiler.validate_masked_artifacts(masked, service.artifacts, trusted_sources)
-    assert artifacts["image"].size == (24, 24)
+    assert artifacts["image"].size == (512, 512)
+    from letsaigc.ui_analysis.inpaint import restore_to_canonical
+
+    with Image.open(io.BytesIO(service.artifacts.read(masked.image_mask.canonical_edit_mask_ref))) as mask_image:
+        canonical_mask = mask_image.convert("L")
+    restored = restore_to_canonical(
+        original_image, Image.new("RGB", (512, 512), (255, 0, 0)), canonical_mask, masked.image_mask
+    )
+    assert restored.getpixel((0, 0)) == (255, 0, 0)
+    # Even deliberately changed context must never leak into the final image.
+    restored.paste(original_image.crop((0, 0, 20, 20)), (0, 0))
+    assert restored.tobytes() == original_image.tobytes()
     compiled = compiler.compile(
         masked,
         uploaded_images=["prepared/image.png"],
@@ -594,8 +607,27 @@ def test_real_editing_prepare_builds_resize_padded_inpaint_child_from_sam_bundle
     )
     assert compiled.validation["masked"] is True
 
+    assert planner.reprepare_inpaint(segmentation).child == inpaint
+    assert service.ledger.list_operations(inpaint.task_id) == []
     inpaint_approval = approve(service.ledger, inpaint.task_id, inpaint.fingerprint)
-    service.ledger.consume_approval(inpaint_approval)
+    # Re-preparation is deterministic and has no approval or execution authority.
+    with pytest.raises(PipelineError, match="Preserve approved"):
+        planner.reprepare_inpaint(segmentation)
+    from temporalio import activity
+
+    from letsaigc.execution.temporal.ui_editing_activities import UIEditingActivities
+    from letsaigc.execution.temporal.ui_messages import UIEditingActivityInput
+
+    monkeypatch.setattr(activity, "heartbeat", lambda *args: None)
+    approval_argument = UIEditingActivityInput(
+        task_id=root.task_id, plan_fingerprint=root.fingerprint,
+        child=segmentation, approval=inpaint_approval,
+    )
+    adapters = UIEditingActivities(service)
+    assert adapters.edit_approval_target(approval_argument) == inpaint
+    # A repeated activity completion must not create an operation or new receipt.
+    assert adapters.edit_approval_target(approval_argument) == inpaint
+    assert service.ledger.list_operations(inpaint.task_id) == []
     inpaint_backend = SyntheticInpaintBackend()
     service.backends["ui.inpaint"] = inpaint_backend
     inpaint_operation = service.submit_step(inpaint, planner.binding(inpaint), Cost(gpu_minutes=1))
@@ -774,7 +806,8 @@ def test_completed_search_root_accepts_trusted_selection_file_override_offline(t
     assert request.prompts[0].box == (8, 8, 24, 24)
 
 
-def test_editing_workflow_local_dispatch_stops_before_unapproved_inpaint(tmp_path, monkeypatch):
+@pytest.mark.parametrize("exact_binding", [False, True])
+def test_editing_workflow_local_dispatch_stops_before_unapproved_inpaint(tmp_path, monkeypatch, exact_binding):
     """A segmentation child runs under root ownership, then the root continues for inpaint approval."""
 
     from temporalio import activity, workflow
@@ -810,6 +843,7 @@ def test_editing_workflow_local_dispatch_stops_before_unapproved_inpaint(tmp_pat
         assert condition(), "Unexpected wait at the local activity boundary"
 
     monkeypatch.setattr(activity, "heartbeat", lambda *args: None)
+    monkeypatch.setattr(workflow, "patched", lambda _: exact_binding)
     monkeypatch.setattr(workflow, "execute_activity", execute_activity)
     monkeypatch.setattr(
         workflow,
@@ -977,6 +1011,36 @@ def test_editing_workflow_turns_active_time_limit_into_terminal_failure(tmp_path
         ).fetchone()[0] == 1
 
 
+def test_exact_approval_selects_pending_candidate_and_rejects_wrong_fingerprint(tmp_path, monkeypatch):
+    from temporalio import activity
+    from temporalio.exceptions import ApplicationError
+
+    from letsaigc.execution.temporal.ui_editing_activities import UIEditingActivities
+    from letsaigc.execution.temporal.ui_messages import UIEditingActivityInput
+    from letsaigc.ui_analysis.selection import record_selection
+
+    service, root, make_child = family(tmp_path)
+    old, new = make_child("old-candidate"), make_child("new-candidate")
+    ref = ArtifactRef.model_validate(new.parameters["selection_ref"])
+    record_selection(service.artifacts, root.task_id,
+                     service.artifacts.put(root.task_id, "selected", service.artifacts.read(ref), role="selection"))
+    receipt = approve(service.ledger, new.task_id, new.fingerprint)
+    argument = UIEditingActivityInput(task_id=root.task_id, plan_fingerprint=root.fingerprint,
+                                      child=old, approval=receipt)
+    monkeypatch.setattr(activity, "heartbeat", lambda *args: None)
+    adapter = UIEditingActivities(service)
+    with pytest.raises(ApplicationError):
+        adapter.edit_approval_target(argument.model_copy(update={
+            "approval": receipt.model_copy(update={"plan_fingerprint": "0" * 64})}))
+    assert EditingExecution(service).validate_current(old)
+    assert adapter.edit_approval_target(argument) == new
+    assert service.ledger.list_operations(old.task_id) == []
+    assert service.ledger.list_operations(new.task_id) == []
+    with pytest.raises(PipelineError) as caught:
+        EditingExecution(service).validate_current(old)
+    assert caught.value.code == "selection_superseded"
+
+
 def test_edit_approval_rejects_root_receipt_and_superseded_child(tmp_path, monkeypatch):
     from temporalio import activity
     from temporalio.exceptions import ApplicationError
@@ -1049,7 +1113,7 @@ def test_real_temporal_editing_worker_restarts_after_child_acceptance(tmp_path):
 
     service, root, child = family(tmp_path / "domain")
     segmentation = child("real-temporal-segmentation")
-    inpaint = child("real-temporal-inpaint", purpose="inpaint")
+    inpaint = child("real-temporal-inpaint", purpose="inpaint", parent_task_id=segmentation.task_id)
     segmentation_approval = approve(service.ledger, segmentation.task_id, segmentation.fingerprint)
     local_selection = service.artifacts.read(ArtifactRef.model_validate(segmentation.parameters["selection_ref"]))
     root_selection = service.artifacts.put(root.task_id, "real-temporal-selection", local_selection, role="selection")
@@ -1274,6 +1338,14 @@ if __name__ == "__main__":
                 process = launch("recover")
                 try:
                     await wait_until(lambda: service.ledger.get(operation_key).state == "outcome_unknown")
+                    async def reconciliation_gate():
+                        while True:
+                            state = await handle.query("state", result_type=PipelineRun | None)
+                            if state and state.state == PipelineState.awaiting_reconciliation:
+                                return
+                            await asyncio.sleep(0.05)
+
+                    await asyncio.wait_for(reconciliation_gate(), 45)
                     await handle.execute_update("reconcile", id="reconcile-segmentation", result_type=str)
                     await wait_until(lambda: service.ledger.get(operation_key).state == "succeeded")
                     await wait_until(

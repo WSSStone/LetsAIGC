@@ -1,5 +1,13 @@
 # 013 UI 执行与批准契约
 
+2026-09-14 增量：可选云端后端仍由 `letsaigc.ui.editing.v1` 协调，活动输出新增
+`ui_cloud_guide`/`ui_cloud_inpaint` 子计划，分别映射 `ui.cloud_guide`/`ui.cloud_inpaint`。
+它们不是另起一套付费 runner，也不以 Comfy GPU 回执表示云端受理。新 profile 进入根和子指纹；
+旧无绑定请求保持原行为。批准前可预览，提交前本地校验，单次 SDK 请求且不自动重试；
+成功产物和 receipt 先持久化再结算，恢复仅收集本地已保存响应。
+provider ID 缺失如实为空，本地结果 ID 显式标注 `local_result`；缺 usage 不按零收费结算。
+云端不获取本地 GPU 租约。完整范围见[T030 MVP](../../../docs/t030-mvp-scope.md)。
+
 状态：单图parse与双后端预览已交付；人工校正预览已交付，后续GPU/批次为待实施设计。依据[规格](../spec.md)、[数据模型](../data-model.md)和[当前任务](../tasks.md)。能力按交付阶段启用，旧G依赖只作历史索引。
 
 ## 静态流程与分期
@@ -94,6 +102,28 @@ Schedule-To-Close 必须包含总尝试和有界排队余量，不允许无限�
 
 纯外部读取失败可重试，但每次真实请求均先按相应调用上限记账。超时、5xx、提交后崩溃不是未受理证明：保留 outcome_unknown、费用和资源，禁止创建替代生成/同逻辑查询。
 
+2026-09-15 T030 云端 MVP 的显式例外：用户可通过 `ui retry-image` 规划一次额外云端生图，并以新指纹
+批准额外预算和一次修订。仅绕过所绑定的、已结束本地调用且无可恢复产物/资源的旧 image unknown；
+原 unknown、费用、原根和 ledger schema 保留。其他在途或未知操作仍拦截，不能自动重试或重跑 VLM。
+预算授予冻结在新 child 中，从已消费批准推导有效根上限，不改写原根；详情见操作指南“显式重试云端生图”。
+后续增量：允许在该次重试已消费批准、以 unknown 结束后，通过显式 `--image-budget` 再规划一次。
+总计最多两次额外尝试，以 `base_task_id` 构成唯一顺序链，不以时间排序。第二次批准逐项绑定新单次上限、
+前次有效根总额加新单次额度、以及一个新增修订额度；所有旧费用保留，只有链内命名的已结束 unknown 可共存。
+规划不启用额度；登记、批准消费、提交均验证链，其他未决/资源/已关闭根仍拦截。历史请求与表结构不变。
+
+
+### 云端图片结果传输兼容（T030）
+
+`cloud_inpaint` 对一个响应先读取非空 `b64_json`；缺少时允许以独立无凭据客户端 GET 提供方的 `url`。
+下载不得触发生图重提交、重跑 VLM 或改变冻结生成 profile/预算/批准。两种传输均进入现有候选持久化、
+1024×1024 PNG 校验、输出与回执持久化步骤。费用仍按原 usage 计算，超限或缺失用量不因取得 PNG 而成功。
+
+公网 HTTPS、DNS 固定 IP/TLS SNI、逐跳重验、最多 3 次重定向/25 MiB/60 秒传输预算；
+独立客户端禁环境代理、无 API 认证或 Cookie 转发，不允许压缩响应绕过大小限制。下载不自动重试。
+trace 增量字段为 `image_transport=base64|url` 和 URL 分支的 `download={attempt:1,http_statuses,bytes?}`；
+`image_url_downloading/downloaded` 阶段及 `image_download_*` 固定错误分类与生成 HTTP 状态分开。
+不得保存 URL、query/fragment、错误正文或认证信息。失败保留原 usage/unknown，不清理历史 operation。
+`recover` 仍仅读取本地已保存回执，不能用缺失链接自动恢复或再次生成。
 
 ## 批次生命周期与投影（后续阶段）
 

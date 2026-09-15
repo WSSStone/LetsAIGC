@@ -118,7 +118,7 @@ def review_readiness():
         except sqlite3.Error:
             pass
     return {
-        "ready": files_ready and version == 4,
+        "ready": files_ready and version in {4, 5},
         "static_files_ready": files_ready,
         "ledger_version": version,
         "required_ledger_version": 4,

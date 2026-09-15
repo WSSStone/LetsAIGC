@@ -12,6 +12,8 @@ CAPABILITIES = {
     # adapters; leaving these without a backend prevents a legacy Comfy fallthrough.
     "ui.segment": Capability(id="ui.segment", resource="local-gpu"),
     "ui.inpaint": Capability(id="ui.inpaint", resource="local-gpu"),
+    "ui.cloud_guide": Capability(id="ui.cloud_guide"),
+    "ui.cloud_inpaint": Capability(id="ui.cloud_inpaint"),
     "ui.ocr": Capability(id="ui.ocr", can_cancel=True),
     "ui.analyze": Capability(id="ui.analyze"),
 }
@@ -62,6 +64,8 @@ UI_OUTPUT_ROLES = {
     "ui.project": {"manifest"},
     "ui.segment": {"segmentation"},
     "ui.inpaint": {"image", "reconstruction", "output"},
+    "ui.cloud_guide": {"cloud_guidance"},
+    "ui.cloud_inpaint": {"image"},
 }
 WORKFLOWS["ui_analysis"] = ("letsaigc.ui.analysis.v1", "ui.analyze")
 

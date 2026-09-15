@@ -1,5 +1,78 @@
 # 游戏 UI 单图解析：可用预览
 
+## T030 当前入口：可选云端补图（2026-09-14）
+
+T030 按[单图编辑 MVP 范围](t030-mvp-scope.md)收尾；下文日期较早的能力状态保留作历史说明。
+新增 `--inpaint-backend openai`，默认仍为 `comfy`。云端路线复用成功的自动解析或已确认 review，
+不重跑 OCR/解析，也不启动 SAM/Comfy：VLM 生成提示词后，独立批准 GPT Image 2 生图。
+代码及离线测试不等于真实产品验收；此前获用户认可的是临时程序的生成结果。
+
+使用已有确认任务及本地预算文件；下面 ID/文件名是占位，不是本次批准：
+
+```powershell
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui plan --reviewed-task REVIEW_TASK_ID --mode reconstruct --target map_surface --inpaint-backend openai --edit-instruction "Remove the blue player markers; preserve the adjacent white dot, terrain, grid and border." --budget BUDGET_FILE
+```
+
+预算至少为 `max_total_cost_usd: 0.11`、`max_iteration_cost_usd: 0.10`；本地 GPU 两项均可为 0。
+当前分配为提示词子任务 0.01 USD、生图子任务 0.10 USD，两者共享根预算。这是批准限额，不是 provider 硬限价承诺；
+按项目已配置费率结算实际 usage，不采用用户控制台显示金额覆盖项目计价，不自动扩大预算。
+
+规划和选择不调用模型。若需要选择，沿新根使用现有 `ui select --candidate` 或 `--selection`。
+`plan`/`inspect` 的 `editing.pending_approvals` 提供实际 child ID、完整指纹、预算、`details.preview_path`、
+提示词和请求 profile。用户检查图和意图即可，内部文件 hash 不需要手工核验。
+
+```powershell
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui inspect ROOT_TASK_ID
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui execute GUIDE_CHILD_ID --approve GUIDE_FINGERPRINT
+```
+
+提示词成功后，工作流生成新的生图 child；重新 inspect，检查实际提示词、输入图和生图预算，再批准：
+
+```powershell
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui execute IMAGE_CHILD_ID --approve IMAGE_FINGERPRINT
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui inspect ROOT_TASK_ID
+```
+
+VLM 使用配置中的 `LLM_VLM_MODEL`、1024 最大输出、流式传输；`--edit-reasoning low|high` 默认 low，
+可在创建新计划时明确选择 high，值随计划冻结，不修改既有计划或自动降级。生图为 `gpt-image-2`、medium、
+1024×1024、PNG、opaque、n=1。两者 connect/write/pool/read 为 10/30/10/300 秒，SDK 自动重试为 0。
+模型读取本工程 `.env` 的 `LLM_BASE_URL`/`LLM_API_KEY`；`LLM_IMAGE_MODEL` 如配置必须为 `gpt-image-2`。
+选区周围至少保留 64px 上下文、可用时至少取 256px 窗口，实际局部缩放为 512×512 后展示并送模。
+该图不是全张原截图；尺寸转换以 `details.context` 为准。生成结果完整保存，不用硬边 mask 重新合成。
+
+`editing.image_files` 返回可打开的输出路径，`editing.children[].details.operations` 展示调用状态、
+脱敏 trace 和已取得的输出路径（包括尚未结算的图片）；账本 receipt 保存 usage、费用和脱敏错误阶段。
+HTTP 成功不等于完整产物成功；usage 缺失时保留已取得的图片但状态仍为未结算，不自动重发。
+
+### 显式重试云端生图（2026-09-15）
+
+`ui retry-image IMAGE_CHILD_ID` 是零推理规划入口：支持同一根下至多两次串联的额外云端生图尝试，
+复用原图片、成功 VLM 提示词、参数和 selection。它不创建新根、不重跑 VLM、不消费批准。
+只接受已结束本地调用、无可恢复成功产物、无资源占用的 `outcome_unknown` 生图；
+运行中、链外未决 operation、已有有效图片/receipt、第三次追加重试均拒绝。禁止分叉或循环。
+
+输出包含新 child / fingerprint、原 operation、`retry.budget_before/budget_after` 和完整请求预览。
+新额度为原根上限加一次生图预算，修订计数上限加 1；其他预算字段不变。
+例如 0.11 → 0.21 USD、修订 0 → 1，原 0.10 USD unknown 仍计入合计。
+首次重试已经独立批准并以 unknown 结束后，可用
+`ui retry-image FIRST_RETRY_CHILD --image-budget 0.15` 零调用规划最后一次后续重试。
+这会冻结 0.21 → 0.36 USD、逐次 0.10 → 0.15 USD、修订 1 → 2 的预算提案；
+两次旧 unknown 均保留。新请求仅调整预算字段，实际图片、提示词、模型和生成参数不变。
+预算参数必须显式给出，不允许用第二次调用抹掉第一次批准的范围或修改旧计划。
+只有随后通过 `ui execute NEW_CHILD --approve NEW_FINGERPRINT` 消费具体批准，额度才生效。
+原根计划和 v5 表结构不变；有效预算从不可变 retry 计划及已消费批准推导，重复批准不会重复加额度。
+`inspect.editing.shared_total_limit` 显示有效额度，旧根 `budget` 仍显示创建时额度。
+
+这是用户显式接受另一次可能收费请求的窄范围例外，不代表原请求未受理，也不解除其他 unknown 的拦截。
+Temporal 的 `ui-cloud-image-retry-v1` 版本分支允许等待对账的原工作流接收新目标，批准 activity 验证后才执行。
+SDK 和提交 activity 不自动重试。普通旧任务继续只观察/收集，不能借旧指纹发起第二次请求。
+
+生图异常记录图片数量、是否仅返回 URL、编码长度、解码后格式/尺寸、校验/保存阶段和已取得的 usage；
+不记录 URL、完整错误正文或 base64；现支持安全下载 URL 结果（见下文）。有界候选字节保留为本地诊断 artifact，
+未通过校验不得当作有效 PNG。原 2026-09-14 响应未保存，不能用新增分类反推它的具体错误。
+无 provider request ID 时显示为空，`local_result` 只标识本地持久化结果，不冒充提供方 ID。
+云端图无“框外逐像素不变”保证；是否保留正确、修补自然由用户检查。
+
 当前已接通手动单图、SerpApi/Tavily 搜索、CPU OCR/VLM 分析、布局/文字/矩形切片/标注图和来源记录。三例真实手动链路、SerpApi/Tavily两家搜索来源解析及一次OCR中断恢复已验收，可用预览已通过，完整质量验收待完成。拆解、补图、批次与局部修订尚未开放，请勿把本页当作完整质量验收声明。进度见 [013 任务记录](../specs/013-game-ui-analysis/tasks.md)。
 
 分析返回 `invalid_analysis` 时不会继续生成布局和切片，已知模型用量仍正常结算。内部analysis证据的 `validation_failure_stage` 与 `validation_failure_reason` 分别记录失败阶段和固定原因码；成功时为null。旧版本缺少这两项的记录不能回溯推断原因，也不能用回归测试通过替代真实样本成功。模型原始正文和异常文本不进入该诊断记录。
@@ -14,6 +87,7 @@
 - OCR 使用 [独立环境定义](../environment/vision-ocr.yml)。操作者准备 [模型锁](../configs/runtime/vision.lock.yaml)列出的静态模型、版本、包及模型哈希、许可证据；占位 null/pending 不表示验证成功。运行时不安装或下载模型。
 - OCR 服务和 Worker 使用相同的 `LETSAIGC_VISION_TOKEN` 与至少 32 字符的 `LETSAIGC_VISION_SIGNING_KEY`。可放在Git忽略的仓库 `.env` 或进程环境中，勿把值放进命令历史或记录；进程环境优先。服务仅监听回环地址。
 - VLM 复用现有 `LLM_BASE_URL`、模型、凭据及计价配置。`LLM_BASE_URL` 必须是服务 URL，不能填密钥。模型/服务/计价改变后创建新计划。
+- 新计划的 VLM 请求 profile 默认使用 `reasoning_effort=high`、`image_detail=high`、`provider_image_encoding=jpeg-rgb-q90-v1`、`correlation_strategy=operation-id-header-v1`、`response_transport=streaming-response-v1`，以及 connect/read/write/pool 分别为 10/300/30/10 秒的超时。可在规划前用 `LLM_VLM_REASONING_EFFORT`（`low|medium|high|xhigh|max`）、`LLM_VLM_IMAGE_DETAIL`（`low|high`）、`LLM_VLM_RESPONSE_TRANSPORT`（`streaming-response-v1|raw-response-v1`）、`LLM_VLM_CONNECT_TIMEOUT_SECONDS`、`LLM_VLM_REQUEST_TIMEOUT_SECONDS`（read）、`LLM_VLM_WRITE_TIMEOUT_SECONDS` 和 `LLM_VLM_POOL_TIMEOUT_SECONDS` 配置；所有值会冻结进 plan fingerprint。流式传输仅改变 Responses 的 HTTP/SSE 传输，不改变严格 JSON schema 或本地校验。历史缺少关联、传输和分离超时字段的计划继续使用原请求路径及统一超时。`plan`/`inspect` 会显示不含密钥的 `request_profile`；真实执行仍只接受该新 fingerprint 的明确批准。VLM 提交证据只保留 operation/client/provider request ID、response ID、请求 hash/字节数、阶段、固定错误分类、usage 和费用，不保存 endpoint、密钥、请求正文、图片 base64、provider 错误正文或完整响应。
 - 搜索另需 `SERPAPI_API_KEY`、`TAVILY_API_KEY` 和 [搜索配置](../configs/providers/image-search.yaml)中已核实的账户计价与条款。仓库默认配置保留未核实单价，实际验收使用本地冻结的账户计价，结束后恢复默认配置；新运行仍须核实自己的账户及探测计价，缺搜索条件不阻塞手动解析。
 
 仅在既存账本已停写时迁移：
@@ -169,6 +243,26 @@ T024已在Windows CUDA环境用具体子计划完成受限固定样本验收：�
 
 ## 显式局部修订
 
+补图准备策略修复后，可用 `ui reprepare-inpaint SEGMENT_CHILD_ID` 从已成功且确认释放的 SAM 产物零推理重建提案。
+该命令仅接受尚无批准记录、尚无 operation 的补图；不重跑 SAM、不改变选择或根预算、不清理历史。
+新提案的 image/mask、坐标变换及指纹需要重新展示并批准。旧提案保持不可变，新子任务实际获批时才由账本使旧待执行子任务失效。
+重复准备同一策略与输入返回同一计划。已有批准、失败、成功或 unknown 的补图不得通过此入口重建。
+
+补图批准按回执中的 task ID 和完整 fingerprint 绑定目标，不按候选创建顺序选择。
+工作流活动校验目标及已释放的父 SAM 后，原子消费批准并替代旧待执行候选；失败不改变旧候选。
+`ui execute` 的 `accepted` 仅表示工作流收到请求：`approval_recorded`、`workflow_received`
+与 `provider_acceptance` 分开报告，不能据此宣称 GPU 已生成。重复同一批准使用同一回执及 operation，
+历史 unknown 仍只允许恢复观察，不重新提交。旧 Temporal 历史保留并通过版本分支回放。
+
+Windows T030 2026-09-10 现场摘要：原指纹补图已沿原根任务完成一次，真实 Temporal 根状态
+`succeeded`，1920×1080 无损重建的 mask 外变化像素为 0，账本费用 $0、GPU 0.420917 分钟。
+模型释放记录使用稳定运行时残留判据（10,888,454 bytes），不是 CUDA 零占用证明；服务随后关闭。
+蓝色玩家标识已移除，但局部有明显色块，不能据此判定质量通过。`ui inspect --local` 仍可能返回
+旧失败 run 的投影，当前结果应与 Temporal 当前 run 及 operation 核对；投影恢复问题尚待修复。
+本地复核材料位于 `.local/validation/ui-analysis/t030-windows/`：
+`bound-inpaint-operation.json`、`bound-inpaint-measurements.json`、`bound-inpaint-temporal-history.json`
+及 `bg3-blue-before-after.png`；均不进入 Git。此记录不代表 T030 全部完成。
+
 需要局部模型复核时，在新编辑根计划中指定 `--allow-local-revision`。此开关只允许后续规划；每个模型子任务仍展示具体输入、完整指纹和预算，等待单独批准。它不能补加到已冻结的旧计划中。
 
 ```sh
@@ -206,3 +300,34 @@ conda run --no-capture-output -n letsaigc-core pytest --ui-live tests/integratio
 验收同时核对源码提交、干净 checkout、监听进程及其实际环境、节点模块/端口和 mask 参数。macOS 上进程检查需相应系统权限；无法核实时明确跳过，不冒充通过。官方 `ImageToMask` 来自 `comfy_extras.nodes_mask`，属于内置节点；`grow_mask_by` 默认6，但工作流显式指定0，验收检查接口是否允许0。
 
 环境版本清单位于 `.local/locks/letsaigc-comfy-macos-arm64.txt`，其 SHA 只证明清单内容，不代表全部 wheel 字节已逐一校验。运行证据与日志位于 `.local/validation/ui-analysis/t027-macos-2026-09-06/`，早期未就绪记录保留。换机须重建环境与本地模型路径配置，不能把 Git 中的验收状态当作新机已经部署。
+
+### 云端图片 URL 结果收集
+
+GPT Image 2 兼容提供方可以返回 base64 或图片 URL。适配器优先读取 base64；仅在没有 base64 时，
+用独立、无模型凭据的客户端下载 URL，再沿相同流程保存候选、校验 1024×1024 PNG、保存产物与回执。
+这一步只是获取已生成结果，不再次调用生图。模型输入、参数、批准指纹及计费计算方式不变。
+
+下载只接受公网 HTTPS，沿用现有 DNS 地址固定和 TLS 主机名校验；最多 3 次逐跳校验的重定向、
+25 MiB 文件及 60 秒传输预算，不使用环境代理、不转发 API key/认证头或 Cookie、不接受压缩传输。
+日志和回执只记录下载状态码、字节数、固定错误分类，不记录完整 URL、签名参数或错误正文。
+生成 HTTP 状态与下载状态分开记录。缺 usage 或超过原批准预算时仍保留图片，不擅自结算为成功。
+
+下载/校验失败保留 unknown 与原 usage，不自动重发生成；已保存回执可离线读回。
+签名 URL 仅在本次调用内存中使用，不持久保存，因此中断在下载完成前或链接过期后，
+本地不能自动恢复该 URL。本次修复不恢复之前未保存的链接，也不授权新的真实调用。
+
+离线复核：`tests/unit/test_cloud_image_download.py`、`tests/integration/test_ui_cloud_editing.py`。
+
+### 智能吸附
+
+画布工具栏的“吸附”控制移动、画框和角点缩放；“边缘”“中心”“画布边界”“等间距”分别控制参照类型，默认全部开启。拖动时按住 Ctrl 临时反转吸附开关，松开恢复。输入框内按键不改变吸附设置。设置仅保留在当前页面，保存草稿不会重置，刷新恢复默认。
+
+粉色参考线显示实际命中的对齐关系，参照框同时高亮；等间距显示两段间距及原图像素数。等距支持插入相邻框之间或向序列两端延续；文字框也可作为参照。参考线不参与鼠标命中、不保存到草稿或导出图。吸附进入/释放距离为 6/10 屏幕像素，缩放后保持相同手感；无法用整数坐标精确满足的中心/间距不吸附。
+
+移动保持宽高，画框和缩放仅调整活动端点。单次拖动只产生一次撤销记录；Escape、失焦、指针取消或切换工具恢复拖动前状态。手输坐标不吸附。所有操作均为本地计算，不产生 OCR/VLM/GPU 调用。
+# T030 当前验收状态（2026-09-15）
+
+T030 已按用户确认的单图编辑 MVP 完成：真实产品云端补图成功，用户视觉验收通过。
+完整回归792 passed、24 skipped；扩展模式/恢复矩阵与24例正式质量仍待验收，不开展T031。
+范围、费用、保留的unknown及Windows/Mac交接见 [T030收尾](t030-windows-closeout.md)。
+此前段落中的未完成状态为阶段性记录，不应替代上述当前结论。

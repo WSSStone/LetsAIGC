@@ -79,3 +79,18 @@ def test_future_ledger_reader_is_rejected(tmp_path):
     with pytest.raises(PipelineError) as error:
         Ledger(path)
     assert error.value.code == "ledger_version"
+
+
+@pytest.mark.parametrize(("version", "ready"), [(3, False), (4, True), (5, True), (6, False)])
+def test_review_doctor_accepts_supported_review_and_editing_ledgers(tmp_path, monkeypatch, version, ready):
+    import sqlite3
+
+    from letsaigc.doctor import review_readiness
+
+    with sqlite3.connect(tmp_path / "ledger.sqlite") as db:
+        db.execute(f"PRAGMA user_version={version}")
+    monkeypatch.setattr("letsaigc.execution.temporal.config.runtime_root", lambda: tmp_path)
+    result = review_readiness()
+    assert result["ready"] is ready
+    assert result["ledger_version"] == version
+    assert result["required_ledger_version"] == 4

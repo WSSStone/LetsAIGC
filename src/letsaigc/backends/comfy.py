@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import io
 import shutil
@@ -41,6 +42,28 @@ class ComfyBackend:
         self.compiler = compiler or WorkflowCompiler()
         self.artifact_store = artifact_store
         self.trusted_sources = trusted_sources
+
+    @staticmethod
+    def _object_info_with_upload_handles(
+        object_info: dict | None, upload_handles: list[str]
+    ) -> dict | None:
+        """Bind trusted upload receipts into a copied dynamic LoadImage enum."""
+
+        if object_info is None:
+            return None
+        bound = copy.deepcopy(object_info)
+        image_spec = (
+            bound.get("LoadImage", {})
+            .get("input", {})
+            .get("required", {})
+            .get("image")
+        )
+        if isinstance(image_spec, (list, tuple)) and image_spec and isinstance(image_spec[0], list):
+            for handle in upload_handles:
+                WorkflowCompiler._validate_upload_handle(handle, "image")
+                if handle not in image_spec[0]:
+                    image_spec[0].append(handle)
+        return bound
 
     def prepare(self, plan: GenerationPlan, *, iteration_id: str):
         """Validate and compile without submitting GPU work; usable by durable callers."""
@@ -105,20 +128,26 @@ class ComfyBackend:
                         subfolder=upload_subfolder,
                     )
                 )
+        upload_handles = [*uploaded, *([uploaded_mask] if uploaded_mask else [])]
         if masked:
+            object_info = None if no_edit_pixels else self._object_info_with_upload_handles(
+                self.client.object_info(), upload_handles
+            )
             compiled = self.compiler.compile(
                 plan,
                 uploaded_images=uploaded,
                 uploaded_mask=uploaded_mask,
                 trusted_artifacts=self.artifact_store,
                 trusted_sources=self.trusted_sources,
-                object_info=None if no_edit_pixels else self.client.object_info(),
+                object_info=object_info,
             )
         else:
             compiled = self.compiler.compile(
                 plan,
                 uploaded_images=uploaded,
-                object_info=self.client.object_info(),
+                object_info=self._object_info_with_upload_handles(
+                    self.client.object_info(), upload_handles
+                ),
             )
         run_kind = "video_generation" if "video" in plan.intent.value else "inference"
         manifest = create_manifest(

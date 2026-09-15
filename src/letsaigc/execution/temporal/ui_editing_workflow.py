@@ -6,7 +6,15 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError, ApplicationError, CancelledError, is_cancelled_exception
 
 with workflow.unsafe.imports_passed_through():
-    from ...schemas.pipeline import ApprovalRequest, ArtifactRef, OperationRecord, PipelineState, StepRun, operation_id
+    from ...schemas.pipeline import (
+        ApprovalRequest,
+        ArtifactRef,
+        OperationRecord,
+        PipelinePlan,
+        PipelineState,
+        StepRun,
+        operation_id,
+    )
     from ...ui_analysis.editing import EditingPreparation
     from .policies import options
     from .smoke_workflow import failure_code
@@ -33,10 +41,20 @@ class UIEditingWorkflow(UIAnalysisWorkflow):
             return super().approval(request)
         if self.current is None or self.child is None:
             raise ApplicationError("not_ready", non_retryable=True)
-        if (request.task_id, request.plan_fingerprint) != (self.child.task_id, self.child.fingerprint):
+        if not workflow.patched("ui-exact-child-approval-v1") and (
+            request.task_id, request.plan_fingerprint
+        ) != (self.child.task_id, self.child.fingerprint):
             raise ApplicationError("approval_mismatch", non_retryable=True)
         if self.accepted_request == request.request_id or self.child_pending == request:
             return "already_registered"
+        if (self.current.state == PipelineState.awaiting_reconciliation and self.child_pending is None
+                and request.task_id != self.child.task_id and workflow.patched("ui-cloud-image-retry-v1")):
+            # The activity validates the exact retry, source operation and budget
+            # before changing any ledger state. Wake the existing root only.
+            self.child_pending = request
+            self.child_approved = False
+            self.reconciliation = True
+            return "registered_pending_validation"
         if self.current.state != PipelineState.awaiting_approval or self.child_pending is not None:
             raise ApplicationError("approval_closed", non_retryable=True)
         self.child_pending = request
@@ -102,6 +120,13 @@ class UIEditingWorkflow(UIAnalysisWorkflow):
                     return self.current
                 await self.await_reconciliation("cancellation_outcome_unknown")
                 continue
+            if (workflow.patched("ui-exact-child-approval-v1") and self.child_pending is not None
+                    and not self.child_approved):
+                await self.consume_exact_child()
+                if self.current.state == PipelineState.rejected:
+                    return self.current
+                if not self.child_approved:
+                    continue
             if self.child is None or not self.child_approved:
                 try:
                     prepared = await self.call("edit.prepare", result_type=EditingPreparation)
@@ -145,14 +170,23 @@ class UIEditingWorkflow(UIAnalysisWorkflow):
                 if self.cancelled:
                     continue
                 receipt = self.child_pending
+                if workflow.patched("ui-exact-child-approval-v1"):
+                    await self.consume_exact_child()
+                    if self.current.state == PipelineState.rejected:
+                        return self.current
+                    if not self.child_approved:
+                        continue
+                    receipt = None
                 try:
-                    self.child_approved = await self.call("edit.approval", approval=receipt)
+                    if receipt is not None:
+                        self.child_approved = await self.call("edit.approval", approval=receipt)
                 except ActivityError as exc:
                     self.child_pending = None
                     await self.publish(PipelineState.awaiting_approval, failure_code(exc))
                     continue
                 self.child_pending = None
-                self.accepted_request = receipt.request_id
+                if receipt is not None:
+                    self.accepted_request = receipt.request_id
                 if not self.child_approved:
                     await self.publish(PipelineState.rejected, "user_rejected")
                     return self.current
@@ -215,6 +249,21 @@ class UIEditingWorkflow(UIAnalysisWorkflow):
             self.active_tick = None
             observations += 1
             await self.check_continue(observations)
+
+    async def consume_exact_child(self):
+        receipt = self.child_pending
+        try:
+            child = await self.call("edit.approval-target", approval=receipt, result_type=PipelinePlan)
+        except ActivityError as exc:
+            self.child_pending = None
+            await self.publish(PipelineState.awaiting_approval, failure_code(exc))
+            return
+        self.child = child
+        self.child_pending = None
+        self.accepted_request = receipt.request_id
+        self.child_approved = receipt.decision == "approve"
+        if not self.child_approved:
+            await self.publish(PipelineState.rejected, "user_rejected")
 
     async def check_continue(self, observations):
         if observations >= self.input.observations_per_run or workflow.info().is_continue_as_new_suggested():

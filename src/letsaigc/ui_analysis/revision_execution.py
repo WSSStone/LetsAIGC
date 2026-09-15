@@ -89,6 +89,24 @@ def _error(code: str, message: str = "Revision cannot be prepared") -> PipelineE
     return PipelineError(code, message)
 
 
+def _can_regenerate_preparation_failure(service, base: PipelinePlan) -> bool:
+    """Allow a new immutable child only when no provider submission occurred."""
+    operations = service.ledger.list_operations(base.task_id)
+    if len(operations) != 1:
+        return False
+    operation = operations[0]
+    return (
+        operation.state == "failed"
+        and operation.provider_request_id is None
+        and operation.reserved.cost_usd == 0
+        and operation.reserved.gpu_minutes == 0
+        and operation.actual.cost_usd == 0
+        and operation.actual.gpu_minutes == 0
+        and operation.result.get("preparation_failed") is True
+        and "submission_trace" not in operation.result
+    )
+
+
 def _ref_role(value: Any, role: str) -> ArtifactRef:
     try:
         ref = value if isinstance(value, ArtifactRef) else ArtifactRef.model_validate(value)
@@ -1065,7 +1083,10 @@ class RevisionExecution:
             )
             artifacts.extend(adjustment_artifacts)
         else:
-            if base.workflow_type != "ui_inpaint" or _child_operation_state(self.service, base)[0] != "succeeded":
+            if base.workflow_type != "ui_inpaint":
+                raise _error("dependency_not_ready")
+            state = _child_operation_state(self.service, base)[0]
+            if state != "succeeded" and not _can_regenerate_preparation_failure(self.service, base):
                 raise _error("dependency_not_ready")
             parent_id = base.parameters.get("parent_task_id")
             if not isinstance(parent_id, str):

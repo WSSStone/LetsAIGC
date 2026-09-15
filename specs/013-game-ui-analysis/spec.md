@@ -1,5 +1,7 @@
 # Feature Specification: 游戏 UI 解析工作流
 
+> 2026-09-14 T030 交付范围修订：按用户要求优先[单图编辑 MVP](../../docs/t030-mvp-scope.md)，新增可选 VLM + GPT Image 2 局部整图生成，保留 SAM/Comfy。原 FR/SC 和历史证据不删除；扩展验收不冒充已完成。云端生成输出不适用原精确 mask 合成的区外像素不变保证。
+
 **Feature ID**: `013-game-ui-analysis`  
 **Created**: 2026-09-04  
 **Status**: 解析及人工校正预览已交付（2026-09-06）；GPU/局部模型与完整质量验收待实施  

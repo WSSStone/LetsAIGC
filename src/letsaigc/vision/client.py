@@ -294,4 +294,6 @@ class SAMOperationBackend:
             raise PipelineError("operation_scope")
         if self.inspect(submission).state not in {"succeeded", "failed"}:
             raise PipelineError("resource_release_unknown")
-        return self.release()
+        proof = self.release()
+        self.ledger.confirm_resource_release(rows[0]["operation_id"], "local-gpu", proof)
+        return proof

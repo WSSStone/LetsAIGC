@@ -12,10 +12,16 @@
 <div id="elements" role="list" aria-label="元素列表"></div></aside>
 <section class="workspace" aria-label="原图校正画布">
 <nav aria-label="画布工具"><button id="select" aria-pressed="true">选择 / 移动</button><button id="draw">＋ 画框</button>
+<span class="snap-tools" role="group" aria-label="吸附设置">
+<button id="snap-enabled" aria-pressed="true" title="吸附总开关；拖动时按住 Ctrl 临时反转">吸附</button>
+<button id="snap-edges" aria-pressed="true" title="对齐其他框的边缘">边缘</button>
+<button id="snap-centers" aria-pressed="true" title="对齐其他框的中心">中心</button>
+<button id="snap-canvas" aria-pressed="true" title="对齐原图四条边界">画布边界</button>
+<button id="snap-spacing" aria-pressed="true" title="与相邻框保持相等间距">等间距</button></span>
 <button id="pan">平移</button><select id="new-type" aria-label="新增框类型"><option value="image">图片框</option><option value="text">文字框</option><option value="container">容器框</option><option value="other">其他框</option></select>
 <button id="undo" title="Ctrl / Cmd + Z">撤销</button><button id="redo">重做</button><button id="zoom-out" aria-label="缩小">−</button><output id="zoom">适合窗口</output><button id="zoom-in" aria-label="放大">＋</button><button id="fit">适合</button></nav>
-<div id="viewport"><svg id="canvas" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="原图与可编辑矩形" tabindex="0"><image id="original"></image><g id="boxes"></g><g id="handles"></g></svg></div>
-<footer>拖动选中框可移动，拖动角点可调整大小。坐标基于原始图片。<span id="dirty">无未保存修改</span></footer>
+<div id="viewport"><svg id="canvas" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="原图与可编辑矩形" tabindex="0"><image id="original"></image><g id="boxes"></g><g id="handles"></g><g id="snap-guides" aria-hidden="true"></g></svg></div>
+<footer>点击边框附近选中，拖动边框移动，拖动角点调整大小。滚轮缩放，右键拖拽平移。按住 Ctrl 临时反转吸附。坐标基于原始图片。<span id="dirty">无未保存修改</span></footer>
 </section>
 <aside id="properties"><h2>属性</h2><p id="selection" class="hint">选择一个元素开始校正</p>
 <form id="form"><label>基础类型<select id="type"><option value="text">文字</option><option value="image">图片</option><option value="container">容器</option><option value="other">其他</option></select></label>

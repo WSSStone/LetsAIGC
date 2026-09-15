@@ -15,6 +15,10 @@ def test_cli_import_plan_and_exact_fingerprint_without_network(tmp_path, ui_fixt
     migrate_ui_ledger(service.ledger.path, writers_stopped=True)
     monkeypatch.setattr(cli, "service", lambda: service)
     monkeypatch.setenv("LLM_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("LLM_VLM_REQUEST_TIMEOUT_SECONDS", "300")
+    monkeypatch.setenv("LLM_VLM_CONNECT_TIMEOUT_SECONDS", "10")
+    monkeypatch.setenv("LLM_VLM_WRITE_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("LLM_VLM_POOL_TIMEOUT_SECONDS", "10")
     runner = CliRunner()
     imported = runner.invoke(app, ["--json", "ui", "import", "--image", str(ui_fixture_dir / "hud-portrait.png")])
     assert imported.exit_code == 0, imported.stdout
@@ -30,7 +34,27 @@ def test_cli_import_plan_and_exact_fingerprint_without_network(tmp_path, ui_fixt
     result = json.loads(planned.stdout)
     assert result["status"] == "planned" and len(result["plan_fingerprint"]) == 64
     assert result["estimated_usage"]["planning_cost_usd"] == 0
+    assert result["request_profile"]["reasoning_effort"] == "high"
+    assert result["request_profile"]["provider_image_encoding"] == "jpeg-rgb-q90-v1"
+    assert result["request_profile"]["schema_profile"] == "strict-source-bound-v1"
+    assert result["request_profile"]["correlation_strategy"] == "operation-id-header-v1"
+    assert result["request_profile"]["response_transport"] == "streaming-response-v1"
+    assert result["request_profile"]["connect_timeout_seconds"] == 10
+    assert result["request_profile"]["write_timeout_seconds"] == 30
+    assert result["request_profile"]["pool_timeout_seconds"] == 10
+    assert result["request_profile"]["request_timeout_seconds"] == 300
     assert service.ledger.list_operations(result["task_id"]) == []
+    inspected = runner.invoke(app, ["--json", "ui", "inspect", result["task_id"], "--local"])
+    assert inspected.exit_code == 0, inspected.stdout
+    assert json.loads(inspected.stdout)["request_profile"] == result["request_profile"]
+    assert json.loads(inspected.stdout)["status"] == "planned"
+    assert json.loads(inspected.stdout)["status_source"] == "local_projection"
+    monkeypatch.setenv("LLM_VLM_REASONING_EFFORT", "low")
+    replanned = runner.invoke(app, ["--json", "ui", "plan", "--input-manifest", str(ref_file), "--budget", str(budget)])
+    assert replanned.exit_code == 0, replanned.stdout
+    low_profile = json.loads(replanned.stdout)
+    assert low_profile["request_profile"]["reasoning_effort"] == "low"
+    assert low_profile["plan_fingerprint"] != result["plan_fingerprint"]
     rejected = runner.invoke(app, ["--json", "ui", "execute", result["task_id"], "--approve", "0" * 64])
     assert rejected.exit_code == 4
     assert json.loads(rejected.stdout)["error"]["code"] == "plan_changed"

@@ -367,6 +367,9 @@ class VisionApplication:
     def _run(self, job, request_id):
         if not self.jobs.start(request_id):
             return
+        started = None
+        startup_seconds = 0.0
+        stage = "provider_execution"
         try:
             if self.capability == "ocr":
                 value = self.engine.recognize(self.artifacts, job)
@@ -375,6 +378,7 @@ class VisionApplication:
                 started = time.perf_counter()
                 startup_seconds = getattr(self.engine, "consume_startup_seconds", lambda: 0.0)()
                 value = self.engine.segment(self.artifacts, job)
+                stage = "output_serialization"
                 if isinstance(value, bytes):
                     data, role = value, "segmentation"
                 else:
@@ -385,14 +389,27 @@ class VisionApplication:
                 )
             if len(data) > 8 * 1024**2:
                 raise PipelineError("output_limit")
+            stage = "output_persist"
             self.jobs.finish(request_id, data=data, role=role, actual=actual)
         except Exception:
             # Keep provider responses, paths and request bodies out of logs.
             error_code = "segmentation_failed" if self.capability == "segmentation" else "ocr_failed"
-            LOGGER.error("Vision operation failed capability=%s code=%s", self.capability, error_code)
+            LOGGER.error(
+                "Vision operation failed capability=%s stage=%s code=%s",
+                self.capability,
+                stage,
+                error_code,
+            )
+            actual = None
+            if self.capability == "segmentation" and started is not None:
+                actual = (
+                    0.0,
+                    max(0.0, (startup_seconds + time.perf_counter() - started) / 60.0),
+                )
             self.jobs.finish(
                 request_id,
                 error_code=error_code,
+                actual=actual,
             )
 
 

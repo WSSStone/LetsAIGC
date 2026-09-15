@@ -36,7 +36,7 @@ def redact_secret(value: str, secret: str | None) -> str:
     return value.replace(secret, "[REDACTED]") if secret else value
 
 
-def build_llm_client(*, timeout: float = 120):
+def build_llm_client(*, timeout: Any = 120):
     key = load_llm_api_key()
     if not key:
         raise ReadinessError("LLM_API_KEY is not configured")
@@ -284,7 +284,9 @@ class ResponsesAgentModel:
     @staticmethod
     def _check_response(response: Any) -> None:
         for item in getattr(response, "output", []):
-            for content in getattr(item, "content", []):
+            # Reasoning output items may expose an optional ``content`` field
+            # as None. They are valid response metadata, not a refusal.
+            for content in getattr(item, "content", None) or []:
                 if getattr(content, "type", None) == "refusal":
                     raise RuntimeExecutionError("Provider moderation refused the request")
         if getattr(response, "status", "completed") != "completed":

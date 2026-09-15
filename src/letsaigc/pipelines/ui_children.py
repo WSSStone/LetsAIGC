@@ -20,6 +20,8 @@ CHILD_WORKFLOWS = {
     "inpaint": ("ui_inpaint", "ui.inpaint"),
     "reread_text": ("ui_text_revision", "ui.ocr"),
     "review_region": ("ui_region_revision", "ui.analyze"),
+    "cloud_guide": ("ui_cloud_guide", "ui.cloud_guide"),
+    "cloud_inpaint": ("ui_cloud_inpaint", "ui.cloud_inpaint"),
 }
 CHILD_PURPOSES = set(CHILD_WORKFLOWS)
 
@@ -178,6 +180,25 @@ def validate_request(
             artifacts.read(item)
         if parsed.selection_revision != selection_revision or parsed.selection_ref.sha256 != selection_ref.sha256:
             raise PipelineError("selection_conflict", "Segmentation selection does not match the child")
+    if purpose in {"cloud_guide", "cloud_inpaint"}:
+        from ..schemas.ui_cloud import CloudEditRequest
+
+        parsed = CloudEditRequest.model_validate(value)
+        if parsed.stage != purpose or parsed.selection_ref != selection_ref:
+            raise PipelineError("selection_conflict")
+        if parsed.selection_revision != selection_revision:
+            raise PipelineError("selection_conflict")
+        refs = [parsed.image_ref, parsed.policy.pricing_ref, parsed.selection_ref]
+        if parsed.guidance_ref is not None:
+            refs.append(parsed.guidance_ref)
+        for item in refs:
+            if item.task_id != task_id:
+                raise PipelineError("artifact_scope")
+            artifacts.read(item)
+        if parsed.image_ref.media_type != "image/png":
+            raise PipelineError("invalid_input")
+        if purpose == "cloud_inpaint" and parsed.guidance_ref is None:
+            raise PipelineError("dependency_not_ready")
     if purpose == "inpaint":
         binding = value.get("image_mask")
         if not isinstance(binding, dict):
