@@ -26,7 +26,7 @@ for _purpose, (_workflow, _capability) in CHILD_WORKFLOWS.items():
 
 
 def validate_registration(plan: PipelinePlan) -> Capability:
-    if plan.workflow_type == "ui_analysis":
+    if plan.workflow_type in {"ui_analysis", "ui_batch"}:
         validate_ui_registration(plan)
         return UI_CAPABILITIES["ui.analyze"]
     if is_child_plan(plan):
@@ -68,6 +68,7 @@ UI_OUTPUT_ROLES = {
     "ui.cloud_inpaint": {"image"},
 }
 WORKFLOWS["ui_analysis"] = ("letsaigc.ui.analysis.v1", "ui.analyze")
+WORKFLOWS["ui_batch"] = ("letsaigc.ui.batch.v1", "ui.analyze")
 
 
 def ui_capabilities(request) -> list[str]:
@@ -78,7 +79,8 @@ def validate_ui_registration(plan: PipelinePlan, artifacts=None):
     from ..schemas.pipeline import ArtifactRef
     from ..schemas.ui import UIAnalysisRequest, UIEvaluationPolicy, UIPolicy
 
-    if plan.workflow_type != "ui_analysis" or plan.envelope.stage != "analysis" or plan.generation_plan:
+    if (plan.workflow_type not in {"ui_analysis", "ui_batch"}
+            or plan.envelope.stage != "analysis" or plan.generation_plan):
         raise PipelineError("invalid_plan", "UI preview requires an analysis plan")
     if plan.envelope.mutable_parameters:
         raise PipelineError("invalid_plan", "UI analysis inputs are immutable")
@@ -95,8 +97,15 @@ def validate_ui_registration(plan: PipelinePlan, artifacts=None):
     policy = UIPolicy.model_validate_json(artifacts.read(refs["policy_ref"]))
     UIEvaluationPolicy.model_validate_json(artifacts.read(refs["evaluation_ref"]))
     count = len(request.input.inputs) if request.input.kind == "manual" else request.input.max_images
-    if count != 1:
-        raise PipelineError("capability_not_ready", "UI batch execution is not available yet")
+    if request.input.kind == "manual" and request.input.metadata_ref:
+        from ..ui_providers.intake import frozen_manifest
+
+        count = len(frozen_manifest(artifacts, request.input, plan.task_id).entries)
+    expected = "ui_analysis" if count == 1 else "ui_batch"
+    if expected == "ui_batch" and {"canonical_ref", "layout_ref", "review_binding_ref"} & request.model_bindings.keys():
+        raise PipelineError("source_scope", "A batch cannot reuse a single-image frozen layout across inputs")
+    if plan.workflow_type != expected:
+        raise PipelineError("invalid_plan", "Workflow differs from the original input count")
     if plan.envelope.allowed_capabilities != ui_capabilities(request) or plan.envelope.budget != request.budget:
         raise PipelineError("invalid_plan", "Analysis scope differs from the frozen request")
     if policy.resources != request.resources or policy.limits != request.limits:

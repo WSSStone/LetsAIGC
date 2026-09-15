@@ -361,9 +361,10 @@ def diagnose(*, include_search=True):
             provider_status = {
                 name: {"ready": False, "reason": "invalid_configuration"} for name in ("serpapi", "tavily")
             }
+    review = review_readiness()
     return {
         "manual": {"ready": True},
-        "review": review_readiness(),
+        "review": review,
         "ocr": {
             "ready": ocr_ready,
             "protocol_version": 1,
@@ -389,7 +390,12 @@ def diagnose(*, include_search=True):
         "search": {"ready": any(value["ready"] for value in provider_status.values()), "providers": provider_status},
         "segmentation": segmentation_readiness(),
         "inpaint": inpaint_readiness(),
-        "batch": {"ready": False},
+        "batch": {
+            "implemented": True,
+            "ready": review["ledger_version"] == 5 and ocr_ready and vlm_ready and temporal["status"] == "pass",
+            "ledger_version": review["ledger_version"], "required_ledger_version": 5,
+            "live_acceptance": "pending",
+        },
         "resources": {
             "free_disk_bytes": shutil.disk_usage(find_repo_root()).free,
             "available_ram_bytes": psutil.virtual_memory().available,
@@ -413,7 +419,8 @@ def preflight(service, plan):
         import json
 
         query = json.loads(service.artifacts.read(request.input.query_ref))["queries"][0]
-        if freeze_search(service.artifacts, plan.task_id, query) != request.input:
+        if freeze_search(service.artifacts, plan.task_id, query).model_copy(
+                update={"max_images": request.input.max_images}) != request.input:
             raise PipelineError("dependency_changed")
         if not status["search"]["ready"]:
             raise PipelineError("search_not_ready")

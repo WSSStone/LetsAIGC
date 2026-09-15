@@ -94,7 +94,16 @@ async def start(service: PipelineService, task_id: str, config: TemporalConfig):
         observations_per_run=config.observations_per_run,
         activity_timeout_seconds=config.activity_timeout_seconds,
     )
-    if plan.workflow_type == "ui_analysis":
+    if plan.workflow_type == "ui_batch":
+        from .ui_batch_messages import UIBatchWorkflowInput
+
+        _require_editing_migration(service)
+        service.checked_plan(task_id, plan.fingerprint)
+        argument = UIBatchWorkflowInput(
+            plan=plan, poll_seconds=config.poll_seconds, observations_per_run=config.observations_per_run,
+            activity_timeout_seconds=config.activity_timeout_seconds,
+        )
+    elif plan.workflow_type == "ui_analysis":
         request = _ui_request(service, plan)
         if request.output_mode == "parse":
             service.checked_plan(task_id, plan.fingerprint)
@@ -138,7 +147,7 @@ async def decision(service: PipelineService, task_id: str, fingerprint: str, con
                 "child_terminal",
                 f"Editing child {task_id} is terminal; approve the current child under root {root_hint!s}",
             )
-        root_task_id = str(plan.parameters["root_task_id"])
+        root_task_id = EditingExecution(service).child_root(plan)
     elif plan.workflow_type == "ui_analysis":
         request = _ui_request(service, plan)
         if request.output_mode != "parse":

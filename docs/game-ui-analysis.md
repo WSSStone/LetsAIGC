@@ -1,4 +1,31 @@
-# 游戏 UI 单图解析：可用预览
+# 游戏 UI 解析与顺序批次
+
+
+## T031–T033：顺序批次（2026-09-15）
+
+已接入手动 2–10 项和搜索 `--max-images 2–10` 的批次规划、执行与结果查询。
+执行要求账本 v5 和可用的 OCR/VLM/Temporal；现有 Mac 账本仍为 v4，必须在停止写入后显式离线迁移。
+本轮通过临时账本、替身模型和 SDK 工作流测试；两种来源的真实批次及获批子生成由 T034 单独验收。
+
+下面只展示规划命令，不代表执行批准。输入和预算文件由用户准备：
+
+```powershell
+$imported = conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui import --image FIRST_IMAGE --image SECOND_IMAGE | ConvertFrom-Json
+$imported.input_manifest_ref | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 INPUT_REF_FILE
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui plan --input-manifest INPUT_REF_FILE --mode parse --batch-failure-policy continue_independent --budget BUDGET_FILE
+conda run --no-capture-output -n letsaigc-core python -m letsaigc --json ui plan --query 'game HUD screenshot' --max-images 3 --mode parse --budget BUDGET_FILE
+```
+
+- 手动按去重前条目数选路，最多 10 项；不接受 `--max-images`。精确重复保留全部输入映射并复用一个单图结果；近似重复只提示。
+- 搜索上限不是成功数量保证；父级执行一次有界供给，单图子任务复用其来源，不重新搜索。候选、下载和搜索尝试仍受原上限约束。
+- 同时只有一个单图子任务。默认 `continue_independent` 继续处理普通失败后的独立图片；`stop_on_error` 停在首个失败，保留后续 `unprocessed` 条目。
+- `ui inspect BATCH_TASK_ID --local` 返回 `entries`、`children`、共享 `usage` 和 `pending_approvals`。编辑候选用实际单图 child ID 查询和选择；SAM/补图仍分别需要具体指纹批准。根分析批准不授权 GPU。
+- 批准等待、预算不足和未知结果不会被当作普通图片失败而跳过。取消先关闭根提交门禁，保留未结算费用和子任务归属，确认外部结果后才释放。
+- 批次 manifest 保存输入到结果的映射、子输出索引和来源引用；开启 MLflow 时派生父子关联。质量状态仍为 `pending`，不授予生产导出批准。
+
+`decompose`/`reconstruct` 可沿既有单图编辑流程逐图等待批准；批次不接受把一个固定 canonical/layout 复用给多图。
+现有云编辑入口继续使用单图 reviewed/automatic 输入。旧 Agent 输入上限保持原有合同。
+下文较早日期的能力说明属于当时记录，当前状态以本节及任务记录为准。
 
 ## T030 当前入口：可选云端补图（2026-09-14）
 

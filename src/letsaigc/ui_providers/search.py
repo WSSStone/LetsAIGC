@@ -200,6 +200,7 @@ class SearchAcquisition:
         return sources
 
     def result(self, plan):
+        request, _, _, _, _ = self.settings(plan)
         sources = self.existing_sources(plan)
         rows = [
             {"source_id": source.source_id, "status": "ready", "entry_ids": source.input_entry_ids}
@@ -225,23 +226,31 @@ class SearchAcquisition:
             },
         }
         index = self.store.put(plan.task_id, "acquisition", canonical_json(summary).encode(), role="input_manifest")
+        errors = (
+            self.store.put(plan.task_id, "acquisition", canonical_json(failures).encode(), role="input_errors")
+            if failures and request.input.max_images > 1 else None
+        )
         return UIProvisionResult(
             provider_id="search",
             provider_version="1",
-            status="ready" if sources else "empty",
+            status=("partial" if errors else "ready") if sources else "empty",
             sources=sources,
             index_ref=index,
+            errors_ref=errors,
         )
 
     def acquire(self, plan):
         request, policy, price_refs, prices, criteria = self.settings(plan)
-        if request.input.max_images != 1:
-            raise PipelineError("capability_not_ready")
-        if self.existing_sources(plan):
+        sources = self.existing_sources(plan)
+        # Preserve completed single-image acquisition. Batch recovery must first
+        # account for a later, possibly paid attempt even when earlier images exist.
+        if sources and request.input.max_images == 1:
             return
         operations = self.ledger.list_operations(plan.task_id)
         if any(op.state not in {"succeeded", "failed"} for op in operations):
             raise OutcomeUnknown()
+        if sources:
+            return
         # Lost ephemeral URLs are not permission for another paid search.
         if any(op.result.get("candidate_count", 0) for op in operations):
             raise PipelineError("input_resupply_required")
@@ -272,7 +281,16 @@ class SearchAcquisition:
                 remaining_candidates = request.limits.candidates_per_query - sum(
                     json.loads(row[0]).get("candidate_count", 0) for row in used
                 )
-                if remaining_candidates <= 0:
+                with self.ledger.transaction() as db:
+                    query_routes = db.execute(
+                        "SELECT attempt_no FROM quota_routes WHERE root_task_id=? AND logical_query_id=?",
+                        (plan.task_id, logical_query),
+                    ).fetchall()
+                prefixes = tuple(f"search.download.{row[0]}." for row in query_routes)
+                remaining_downloads = request.limits.downloads_per_query - sum(
+                    op.step_id.startswith(prefixes) for op in self.ledger.list_operations(plan.task_id)
+                )
+                if remaining_candidates <= 0 or remaining_downloads <= 0:
                     break
                 binding = UIStepBinding(
                     task_id=plan.task_id,
@@ -315,7 +333,7 @@ class SearchAcquisition:
                             pricing_ref=price_refs[route.provider],
                             policy_hash=digest(policy),
                             candidate_limit=remaining_candidates,
-                            download_limit=request.limits.downloads_per_query,
+                            download_limit=remaining_downloads,
                         )
                     )
                 except Exception:
@@ -359,10 +377,18 @@ class SearchAcquisition:
                 if self.download(plan, request, criteria, route, receipt, index):
                     return
             excluded = set()
+        # max_images is an approved ceiling, not a promise to supply that many.
+        if self.existing_sources(plan):
+            return
         raise PipelineError("search_unavailable")
 
     def download(self, plan, request, criteria, route, receipt, index):
-        seen_sha, seen_phash = set(), []
+        sources = self.existing_sources(plan)
+        seen_sha = {source.original_ref.sha256 for source in sources}
+        seen_phash = [
+            json.loads(self.store.read(source.provenance_ref))["observed"]["phash"] for source in sources
+        ]
+        selected = len(sources)
         with self.ledger.transaction() as db:
             routes = db.execute(
                 "SELECT attempt_no FROM quota_routes WHERE root_task_id=? AND logical_query_id=?",
@@ -374,6 +400,10 @@ class SearchAcquisition:
         query = queries[int(route.logical_query_id.removeprefix("query-")) - 1]
         terms = re.findall(r"[\w]+", query.casefold())
         for candidate in receipt.candidates:
+            # The default selection ceiling is one; an explicitly approved root
+            # max_images expands it while each query retains its download quota.
+            if selected >= request.input.max_images:
+                return True
             if downloads >= request.limits.downloads_per_query:
                 break
             # This deterministic filter uses only provider-declared relevance;
@@ -469,11 +499,15 @@ class SearchAcquisition:
                     Cost(),
                     {"artifacts": [ref.model_dump(mode="json") for ref in (original, provenance)]},
                 )
-                return True
-            except Exception:
+                selected += 1
+                if selected >= request.input.max_images:
+                    return True
+            except Exception as exc:
                 # Downloads do not create paid work; a completed failed download
                 # has known zero monetary/GPU cost and keeps its failed entry.
                 self.ledger.finish_ui(
-                    operation.operation_id, Cost(), {"error_code": "candidate_unavailable"}, failed=True
+                    operation.operation_id, Cost(),
+                    {"error_code": exc.code if isinstance(exc, PipelineError) else "candidate_unavailable"},
+                    failed=True,
                 )
         return False

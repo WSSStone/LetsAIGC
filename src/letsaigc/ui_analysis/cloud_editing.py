@@ -57,7 +57,8 @@ def prepare_cloud(editing, root, request, selection_ref, revision):
     from ..pipelines.cloud_retry import retry_chain
 
     with service.ledger.transaction() as db:
-        retries = retry_chain(db, root.task_id)
+        retries = [child for child in retry_chain(db, service.ledger._root_task_id(db, root.task_id))
+                   if service.ledger._editing_owner_id(db, child.task_id) == root.task_id]
     if retries:
         child = retries[-1]
         validate_image_retry(service, child)
@@ -158,7 +159,7 @@ def validate_cloud_target(service, child):
     """Approval/submit cannot bypass the expected guide -> image dependency."""
     from .editing import EditingExecution
 
-    root = service.ledger.plan(child.parameters["root_task_id"])
+    root = service.ledger.plan(EditingExecution(service).child_root(child))
     request = UIAnalysisRequest.model_validate_json(service.artifacts.read(
         ArtifactRef.model_validate(root.parameters["request_ref"])))
     if "cloud_inpaint" not in request.model_bindings:
@@ -232,7 +233,8 @@ def plan_image_retry(service, base_task_id, *, image_budget_usd=None):
         raise PipelineError("cloud_retry_not_available")
     editing, store = EditingExecution(service), service.artifacts
     editing.validate_current(base)
-    root = service.ledger.plan(base.parameters["root_task_id"])
+    root = service.ledger.plan(editing.child_root(base))
+    budget_root = base.parameters["root_task_id"]
     for existing, _ in _children(service, root.task_id):
         retry = existing.parameters.get("cloud_retry")
         if retry and retry["base_task_id"] == base_task_id:
@@ -241,7 +243,7 @@ def plan_image_retry(service, base_task_id, *, image_budget_usd=None):
             validate_image_retry(service, existing)
             return existing
     with service.ledger.transaction() as db:
-        chain = retry_chain(db, root.task_id)
+        chain = retry_chain(db, budget_root)
     followup = bool(base.parameters.get("cloud_retry"))
     if len(chain) >= 2 or (chain and (not followup or chain[-1].task_id != base_task_id)):
         raise PipelineError("cloud_retry_conflict", "Only two linked explicit retries are supported")
@@ -260,7 +262,7 @@ def plan_image_retry(service, base_task_id, *, image_budget_usd=None):
     if (not 0 < amount <= 1 or (not followup and amount != before.policy.image_budget_usd)
             or (followup and amount < base.envelope.budget.max_iteration_cost_usd)):
         raise PipelineError("budget_scope")
-    budget = service.ledger.effective_budget(root.task_id)
+    budget = service.ledger.effective_budget(budget_root)
     changes = {"max_total_cost_usd": float(Decimal(str(budget.max_total_cost_usd)) + Decimal(str(amount))),
                "max_revisions": budget.max_revisions + 1}
     if followup:

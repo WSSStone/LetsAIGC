@@ -12,11 +12,13 @@
 
 游戏 UI 单图解析已提供可用预览：支持手动截图、SerpApi/Tavily 搜索输入，经 CPU OCR/VLM 输出布局、文字、矩形切片、标注图与来源记录。三例商业游戏截图、两家真实搜索和一次 OCR 后 Worker 中断恢复已验证；完整质量验收待完成。
 
-从 [单图使用指南](docs/game-ui-analysis.md) 开始：准备本地 OCR/Temporal 和账户配置，运行 `ui doctor`，再依次 `ui import`（手动输入）、`ui plan`、核对指纹与预算、`ui execute --approve`、`ui inspect`。所有环境命令使用 `conda run --no-capture-output -n letsaigc-core ...`。矩形切片保留原背景；分割、补图、批次与局部修订尚未开放。实施状态与后续任务见 [013 任务记录](specs/013-game-ui-analysis/tasks.md)。
+从 [单图使用指南](docs/game-ui-analysis.md) 开始：准备本地 OCR/Temporal 和账户配置，运行 `ui doctor`，再依次 `ui import`（手动输入）、`ui plan`、核对指纹与预算、`ui execute --approve`、`ui inspect`。所有环境命令使用 `conda run --no-capture-output -n letsaigc-core ...`。矩形切片保留原背景；编辑与局部修订的实现及验收范围见使用指南。实施状态与后续任务见 [013 任务记录](specs/013-game-ui-analysis/tasks.md)。
 
 人工校正预览已提供：运行 `conda run --no-capture-output -n letsaigc-core python -m letsaigc ui review TASK_ID`，在本地页面画框、改字、分类、调整层级并保存草稿。确认版本生成独立布局、有效文字、切片与标注图，保留原始 OCR；不调用模型，也不需要 Torch。三例浏览器交互、保存冲突和确认中断恢复已验收。启动与恢复步骤见[人工校正使用指南](docs/game-ui-analysis.md#人工校正预览)。
 
 编辑流程可从确认后的人工校正版或显式选择的原自动布局建立计划，不重复 OCR/VLM；具体分割与最终蒙版补图分别批准，并共享根预算、顺序释放 GPU。见[编辑区域准备](docs/game-ui-analysis.md#编辑区域准备)。Windows 已完成固定样本 SAM 验收；完整编辑流程的真实 GPU 和图像质量验收仍待完成。现有 Mac 账本保持 v4，真实编辑需显式迁移和核验运行资源。
+
+手动与搜索顺序批次已接入：原始手动 2–10 项或搜索 `--max-images 2–10`，共享根预算、逐图执行并保留重复/失败映射。执行要求显式迁移到 v5；T031–T033 离线验证完成，T034 真实批次和正式质量验收待完成。见[批次使用说明](docs/game-ui-analysis.md#t031t033顺序批次2026-09-15)。
 
 ## Agent 工作方式
 

@@ -100,7 +100,8 @@ class Ledger:
                 "INSERT OR IGNORE INTO tasks(task_id,fingerprint,plan) VALUES(?,?,?)",
                 (plan.task_id, plan.fingerprint, canonical_json(plan)),
             )
-            if plan.workflow_type == "ui_analysis" and db.execute("PRAGMA user_version").fetchone()[0] >= 5:
+            if (plan.workflow_type in {"ui_analysis", "ui_batch"}
+                    and db.execute("PRAGMA user_version").fetchone()[0] >= 5):
                 db.execute(
                     """INSERT OR IGNORE INTO ui_budget_groups
                     (root_task_id,budget) VALUES(?,?)""",
@@ -138,6 +139,7 @@ class Ledger:
                 raise PipelineError("unknown_parent", "Parent task or root budget group is unknown")
             if self._root_task_id(db, parent_task_id) != root_task_id or parent_task_id == plan.task_id:
                 raise PipelineError("child_cycle", "Child parent does not belong to the same root")
+            self._check_analysis_active(db, self._editing_owner_id(db, parent_task_id))
             if plan.parameters.get("cloud_retry"):
                 from .cloud_retry import validate_retry
 
@@ -228,6 +230,7 @@ class Ledger:
         if current["status"] in {"selection_superseded", "completed"}:
             raise PipelineError("selection_superseded", "This child selection is no longer current")
         root = current["root_task_id"]
+        self._check_analysis_active(db, self._editing_owner_id(db, task_id))
         group = db.execute(
             "SELECT submission_gate FROM ui_budget_groups WHERE root_task_id=?", (root,)
         ).fetchone()
@@ -243,7 +246,7 @@ class Ledger:
         pending = db.execute(
             """SELECT task_id FROM ui_child_bindings
             WHERE root_task_id=? AND task_id<>?
-              AND status IN ('pending','active')""",
+              AND purpose<>'analysis' AND status IN ('pending','active')""",
             (root, task_id),
         ).fetchall()
         current_sources = set(json.loads(current["source_chain"]))
@@ -337,6 +340,35 @@ class Ledger:
             return task_id
         row = db.execute("SELECT root_task_id FROM ui_child_bindings WHERE task_id=?", (task_id,)).fetchone()
         return row["root_task_id"] if row else task_id
+
+    @staticmethod
+    def _editing_owner_id(db: sqlite3.Connection, task_id: str) -> str:
+        """Find the single-image workflow while retaining the batch budget root."""
+        seen = set()
+        while task_id not in seen:
+            seen.add(task_id)
+            row = db.execute("SELECT plan FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+            if row is None:
+                raise PipelineError("unknown_parent")
+            if json.loads(row["plan"])["workflow_type"] == "ui_analysis":
+                return task_id
+            binding = db.execute(
+                "SELECT parent_task_id FROM ui_child_bindings WHERE task_id=?", (task_id,)
+            ).fetchone()
+            if binding is None:
+                raise PipelineError("invalid_child", "Editing requires a single-image ancestor")
+            task_id = binding["parent_task_id"]
+        raise PipelineError("child_cycle")
+
+    @staticmethod
+    def _check_analysis_active(db, task_id):
+        if db.execute("PRAGMA user_version").fetchone()[0] < 5:
+            return
+        row = db.execute(
+            "SELECT active FROM ui_child_bindings WHERE task_id=? AND purpose='analysis'", (task_id,)
+        ).fetchone()
+        if row is not None and not row["active"]:
+            raise PipelineError("inactive_child", "The batch image has already completed")
 
     @staticmethod
     def _is_child_workflow(workflow_type: str) -> bool:
@@ -462,6 +494,9 @@ class Ledger:
             if task["cancelled"]:
                 raise PipelineError("cancelled", "The pipeline is cancelling")
             if plan.workflow_type == "ui_analysis":
+                if db.execute("SELECT 1 FROM operations WHERE operation_id=?", (key,)).fetchone() is None:
+                    self._check_analysis_active(db, plan.task_id)
+            if plan.workflow_type in {"ui_analysis", "ui_batch"}:
                 self._check_ui_binding(db, plan, step_id, revision, ui_binding, ui_request)
             elif child:
                 self._child_step_check(db, plan, step_id, revision, ui_binding)
@@ -469,12 +504,13 @@ class Ledger:
             if old:
                 return self._record(old)
             if child:
+                self._check_analysis_active(db, self._editing_owner_id(db, plan.task_id))
                 binding = self._child_binding(db, plan.task_id)
                 if binding["status"] != "active" or not binding["active"]:
                     if binding["status"] == "selection_superseded":
                         raise PipelineError("selection_superseded", "A newer selection replaced this child")
                     raise PipelineError("awaiting_approval", "The exact child selection is not active")
-            if plan.workflow_type == "ui_analysis" or child:
+            if plan.workflow_type in {"ui_analysis", "ui_batch"} or child:
                 self._ui_gate(db, plan.task_id)
             if admission is not None:
                 # Trusted local quota admission is part of this same transaction.
@@ -485,11 +521,11 @@ class Ledger:
                 raise PipelineError("iteration_budget", "Per-iteration monetary budget exceeded")
             if reserve_gpu > units(budget.max_iteration_gpu_minutes, limit=True):
                 raise PipelineError("iteration_budget", "Per-iteration GPU budget exceeded")
-            root_task_id = self._root_task_id(db, plan.task_id) if child else plan.task_id
+            root_task_id = self._root_task_id(db, plan.task_id)
             grouped_root = False
             if db.execute("PRAGMA user_version").fetchone()[0] >= 5:
                 grouped_root = db.execute(
-                    "SELECT 1 FROM ui_budget_groups WHERE root_task_id=?", (plan.task_id,)
+                    "SELECT 1 FROM ui_budget_groups WHERE root_task_id=?", (root_task_id,)
                 ).fetchone() is not None
             aggregate_children = child or grouped_root
             if aggregate_children:
@@ -553,21 +589,29 @@ class Ledger:
                         raise PipelineError("revision_not_allowed")
                     from ..schemas.pipeline import digest
 
+                    owner_task_id = self._editing_owner_id(db, plan.task_id)
                     root_data = json.loads(db.execute(
-                        "SELECT plan FROM tasks WHERE task_id=?", (root_task_id,)
+                        "SELECT plan FROM tasks WHERE task_id=?", (owner_task_id,)
                     ).fetchone()["plan"])
                     if digest(ui_request) != root_data["parameters"]["request_ref"]["sha256"]:
                         raise PipelineError("input_changed")
                     limits = ui_request.limits
                     limit = limits.ocr_rereads_per_image if capability == "ui.ocr" else limits.vlm_calls_per_image
-                    count = sum(row["capability"] == capability for row in charges)
+                    count = sum(row["capability"] == capability
+                                and bool(source_set.intersection(json.loads(row["source_chain"])))
+                                for row in charges)
+                    initial = db.execute(
+                        "SELECT binding FROM ui_step_bindings WHERE task_id=?", (owner_task_id,)
+                    ).fetchall()
+                    initial_count = sum(json.loads(row["binding"])["capability"] == capability for row in initial)
                     if capability == "ui.analyze":
                         if count >= ui_request.resources.vlm_local_views:
                             raise PipelineError("call_limit", "Local VLM view limit is exhausted")
-                        initial = db.execute(
-                            "SELECT binding FROM ui_step_bindings WHERE task_id=?", (root_task_id,)
-                        ).fetchall()
-                        count += sum(json.loads(row["binding"])["capability"] == capability for row in initial)
+                        count += initial_count
+                    else:
+                        # Original OCR tiles and rereads share the image's total
+                        # allowance with explicit local reread children.
+                        count += max(0, initial_count - ui_request.resources.ocr_max_tiles)
                     if count >= limit:
                         raise PipelineError("call_limit", "Local revision call limit is exhausted")
                 used = sum(row["revision_units"] for row in charges)
@@ -624,9 +668,12 @@ class Ledger:
                 yield
                 return
             children = db.execute(
-                "SELECT task_id FROM ui_child_bindings WHERE root_task_id=? AND status IN ('pending','active')",
-                (root_task_id,),
+                "SELECT task_id FROM ui_child_bindings WHERE root_task_id=? AND purpose<>'analysis' "
+                "AND status IN ('pending','active')",
+                (self._root_task_id(db, root_task_id),),
             ).fetchall()
+            children = [child for child in children
+                        if self._editing_owner_id(db, child["task_id"]) == root_task_id]
             for child in children:
                 if db.execute(
                     "SELECT 1 FROM operations WHERE task_id=? AND state IN "
@@ -667,9 +714,12 @@ class Ledger:
                 raise PipelineError("cancelled" if task and task["cancelled"] else "approval_required")
             plan = db.execute("SELECT plan FROM tasks WHERE task_id=?", (row["task_id"],)).fetchone()
             workflow_type = json.loads(plan["plan"])["workflow_type"]
-            if workflow_type == "ui_analysis" or self._is_child_workflow(workflow_type):
+            if workflow_type == "ui_analysis" and row["state"] == "prepared":
+                self._check_analysis_active(db, row["task_id"])
+            if workflow_type in {"ui_analysis", "ui_batch"} or self._is_child_workflow(workflow_type):
                 self._ui_gate(db, row["task_id"], except_key=key)
             if self._is_child_workflow(workflow_type):
+                self._check_analysis_active(db, self._editing_owner_id(db, row["task_id"]))
                 binding = self._child_binding(db, row["task_id"])
                 if binding["status"] != "active" or not binding["active"]:
                     raise PipelineError("selection_superseded", "This child selection is no longer active")
@@ -945,6 +995,14 @@ class Ledger:
             }.get(binding.capability, 1)
             rows = db.execute("SELECT binding FROM ui_step_bindings WHERE task_id=?", (plan.task_id,)).fetchall()
             count = sum(json.loads(row["binding"])["capability"] == binding.capability for row in rows)
+            if binding.capability in {"ui.ocr", "ui.analyze"} and db.execute(
+                "PRAGMA user_version"
+            ).fetchone()[0] >= 5:
+                root_id = Ledger._root_task_id(db, plan.task_id)
+                charges = Ledger._charged_revisions(db, root_id)
+                count += sum(row["capability"] == binding.capability
+                             and Ledger._editing_owner_id(db, row["task_id"]) == plan.task_id
+                             for row in charges)
             if binding.capability == "ui.search":
                 if step_id == "search":
                     if any(json.loads(row["binding"])["step_id"] == "search" for row in rows):
@@ -1007,7 +1065,7 @@ class Ledger:
             task = db.execute("SELECT plan FROM tasks WHERE task_id=?", (row["task_id"],)).fetchone()
             plan = PipelinePlan.model_validate_json(task["plan"])
             child = self._is_child_workflow(plan.workflow_type)
-            if plan.workflow_type != "ui_analysis" and not child:
+            if plan.workflow_type not in {"ui_analysis", "ui_batch"} and not child:
                 raise PipelineError("invalid_step", "UI settlement only applies to UI operations")
             if row["state"] in {"succeeded", "failed"}:
                 previous = json.loads(row["result"])
@@ -1017,7 +1075,7 @@ class Ledger:
                 if (row["actual_cost"], row["actual_gpu"], previous) != (actual_cost, actual_gpu, incoming):
                     raise PipelineError("settlement_conflict")
                 return self._record(row)
-            root_task_id = self._root_task_id(db, plan.task_id) if child else plan.task_id
+            root_task_id = self._root_task_id(db, plan.task_id)
             grouped_root = child
             if db.execute("PRAGMA user_version").fetchone()[0] >= 5:
                 grouped_root = (

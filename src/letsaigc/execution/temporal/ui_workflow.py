@@ -15,6 +15,15 @@ with workflow.unsafe.imports_passed_through():
 
 @workflow.defn(name="letsaigc.ui.analysis.v1")
 class UIAnalysisWorkflow(PipelineWorkflow):
+    @workflow.signal(name="reconcile_cancelled")
+    def reconcile_cancelled(self):
+        # A parent notification is only a read-only cleanup hint. It neither
+        # cancels work nor grants approval. Retain early delivery until native
+        # cancellation reaches the workflow's cleanup branch.
+        self.parent_reconciliation = True
+        if self.cancelled:
+            self.reconciliation = True
+
     @workflow.run
     async def run(self, argument: UIWorkflowInput) -> PipelineRun:
         self.phase_index, self.position = argument.phase_index, argument.position
@@ -65,8 +74,15 @@ class UIAnalysisWorkflow(PipelineWorkflow):
 
     async def await_reconciliation(self, code):
         try:
-            await super().await_reconciliation(code)
+            self.reconciliation = False
+            await self.publish(PipelineState.awaiting_reconciliation, code)
+            await workflow.wait_condition(
+                lambda: self.reconciliation or (self.cancelled and (
+                    not self.cancelling or getattr(self, "parent_reconciliation", False)
+                ))
+            )
         finally:
+            self.parent_reconciliation = False
             self.active_tick = None
 
     async def advance(self):

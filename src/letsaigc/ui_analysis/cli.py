@@ -341,13 +341,15 @@ def _editing_view(instance, plan, *, prepare=False):
     elif _needs_analysis(instance, plan) and not instance.ledger.list_operations(plan.task_id):
         pending = [_approval_view(instance, plan)]
     with instance.ledger.transaction() as db:
+        budget_root = instance.ledger._root_task_id(db, plan.task_id)
         children = [dict(row) for row in db.execute(
-            "SELECT task_id,purpose,status FROM ui_child_bindings WHERE root_task_id=? ORDER BY rowid",
-            (plan.task_id,),
-        ).fetchall()]
+            "SELECT task_id,purpose,status FROM ui_child_bindings WHERE root_task_id=? "
+            "AND purpose<>'analysis' ORDER BY rowid",
+            (budget_root,),
+        ).fetchall() if instance.ledger._editing_owner_id(db, row["task_id"]) == plan.task_id]
     return {"state": prepared.state, "reason": prepared.reason, "pending_approvals": pending,
             "children": [{**row, **_approval_view(instance, instance.ledger.plan(row["task_id"]))} for row in children],
-            "artifacts": prepared.artifacts, "shared_total_limit": instance.ledger.effective_budget(plan.task_id),
+            "artifacts": prepared.artifacts, "shared_total_limit": instance.ledger.effective_budget(budget_root),
             "image_files": [{"ref": ref, "path": str(instance.artifacts.resolve(ref))}
                             for ref in prepared.artifacts if ref.media_type == "image/png"]}
 
@@ -448,6 +450,7 @@ def plan(
     review_revision: int | None = typer.Option(None, "--review-revision", min=0),
     budget: Path = typer.Option(..., "--budget"),
     max_images: int | None = typer.Option(None, "--max-images", min=1, max=10),
+    batch_failure_policy: str = typer.Option("continue_independent", "--batch-failure-policy"),
     mode: str = typer.Option("parse", "--mode"),
     target: str | None = typer.Option(None, "--target"),
     inpaint_backend: str = typer.Option("comfy", "--inpaint-backend"),
@@ -479,8 +482,10 @@ def plan(
         raise PipelineError("invalid_selection")
     if sum(bool(value) for value in (input_manifest, query, reviewed_task, automatic_task)) != 1:
         raise PipelineError("invalid_input")
-    if max_images is not None and max_images > 1:
-        raise PipelineError("capability_not_ready")
+    if batch_failure_policy not in {"continue_independent", "stop_on_error"}:
+        raise PipelineError("invalid_input")
+    if input_manifest is not None and max_images is not None:
+        raise PipelineError("invalid_input", "Manual inputs do not accept --max-images")
     if mode == "parse" and (
         target or selection or text_assets or remove_text or allow_local_revision or reviewed_task or automatic_task
     ):
@@ -519,19 +524,18 @@ def plan(
         with instance.ledger.transaction() as db:
             if db.execute("PRAGMA user_version").fetchone()[0] not in {3, 4, 5}:
                 raise PipelineError("migration_required")
-        inputs = freeze_search(instance.artifacts, task_id, query)
+        inputs = freeze_search(instance.artifacts, task_id, query).model_copy(update={"max_images": max_images or 1})
         routing = json.loads(instance.artifacts.read(inputs.routing_policy_ref))["routing"]
         acquisition = {
             "kind": "search",
             "allowed_providers": routing["allowed_providers"],
             "serpapi_no_cache": routing["serpapi_no_cache"],
-            "max_images": 1,
+            "max_images": max_images or 1,
         }
     else:
         ref = load_ref(input_manifest)
         manifest = UIInputManifest.model_validate_json(instance.artifacts.read(ref))
-        if len(manifest.entries) != 1:
-            raise PipelineError("capability_not_ready")
+        acquisition["input_count"] = len(manifest.entries)
         inputs = UIIntake(instance.artifacts).rebind(ref, task_id, allowed_scopes={ref.task_id})
 
     model_bindings = {} if review_refs and not allow_local_revision else freeze_models(instance.artifacts, task_id)
@@ -569,6 +573,7 @@ def plan(
     request = UIAnalysisRequest(
         input=inputs,
         output_mode=mode,
+        batch_failure_policy=batch_failure_policy,
         language=language,
         reconstruction_target=target,
         selection_mode="bound" if selection_ref else "deferred" if mode != "parse" else "none",
@@ -619,7 +624,8 @@ def plan(
         automatic=automatic_info,
         request_profile=_vlm_request_profile(instance, request),
         execution_capability="editing" if mode != "parse" else "parse",
-        editing=_editing_view(instance, result, prepare=True) if mode != "parse" else None,
+        editing=(_editing_view(instance, result, prepare=True)
+                 if mode != "parse" and result.workflow_type != "ui_batch" else None),
     )
 
 
@@ -632,9 +638,12 @@ async def start_approved(instance, plan, request, *, revision_ref=None):
     frozen = UIAnalysisRequest.model_validate_json(
         instance.artifacts.read(ArtifactRef.model_validate(plan.parameters["request_ref"]))
     )
-    editing = frozen.output_mode != "parse"
+    batch = plan.workflow_type == "ui_batch"
+    editing = frozen.output_mode != "parse" and not batch
     child_approval = request.task_id != plan.task_id
-    argument_class = UIEditingWorkflowInput if editing else UIWorkflowInput
+    from ..execution.temporal.ui_batch_messages import UIBatchWorkflowInput
+
+    argument_class = UIBatchWorkflowInput if batch else UIEditingWorkflowInput if editing else UIWorkflowInput
     extra = {}
     if editing and child_approval:
         extra = {"initial_child_approval": request, "phase_index": 7, "approved": True,
@@ -645,7 +654,7 @@ async def start_approved(instance, plan, request, *, revision_ref=None):
     client = await temporal.connect(config)
     try:
         handle = await client.start_workflow(
-            "letsaigc.ui.editing.v1" if editing else "letsaigc.ui.analysis.v1",
+            "letsaigc.ui.batch.v1" if batch else "letsaigc.ui.editing.v1" if editing else "letsaigc.ui.analysis.v1",
             argument_class(
                 plan=plan,
                 initial_approval=None if child_approval else request,
@@ -654,7 +663,7 @@ async def start_approved(instance, plan, request, *, revision_ref=None):
                 activity_timeout_seconds=(max(360, config.activity_timeout_seconds)
                                           if "cloud_inpaint" in frozen.model_bindings
                                           else config.activity_timeout_seconds),
-                active_limit_seconds=frozen.resources.active_seconds,
+                **({"active_limit_seconds": frozen.resources.active_seconds} if not batch else {}),
                 **extra,
             ),
             id=plan.task_id,
@@ -686,7 +695,7 @@ async def start_approved(instance, plan, request, *, revision_ref=None):
 
 def checked_ui(instance, task_id, fingerprint=None, *, verify=True):
     plan = instance.ledger.plan(task_id)
-    if plan.workflow_type != "ui_analysis":
+    if plan.workflow_type not in {"ui_analysis", "ui_batch"}:
         raise PipelineError("invalid_plan")
     return instance.checked_plan(task_id, fingerprint or plan.fingerprint, verify_inputs=verify)
 
@@ -827,11 +836,11 @@ def execute(task_id: str, fingerprint: str = typer.Option(..., "--approve")):
     request = UIAnalysisRequest.model_validate_json(
         instance.artifacts.read(ArtifactRef.model_validate(plan.parameters["request_ref"]))
     )
-    if request.output_mode != "parse":
+    if request.output_mode != "parse" or plan.workflow_type == "ui_batch":
         with instance.ledger.transaction() as db:
             if db.execute("PRAGMA user_version").fetchone()[0] < 5:
                 raise PipelineError("migration_required")
-    if request.output_mode != "parse" and not _needs_analysis(instance, plan):
+    if plan.workflow_type != "ui_batch" and request.output_mode != "parse" and not _needs_analysis(instance, plan):
         # A layout/selection already exists. Display the concrete child;
         # approving the root never grants the child's GPU authority.
         editing = _editing_view(instance, plan, prepare=True)
@@ -902,6 +911,34 @@ def inspect(task_id: str, local: bool = typer.Option(False, "--local")):
     request = UIAnalysisRequest.model_validate_json(
         instance.artifacts.read(ArtifactRef.model_validate(plan.parameters["request_ref"]))
     )
+    if plan.workflow_type == "ui_batch":
+        from .batch import BatchExecution
+
+        execution = BatchExecution(instance)
+        with instance.ledger.transaction() as db:
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+        if version < 5:
+            emit("inspect", "planned", task_id=task_id, plan_fingerprint=plan.fingerprint,
+                 execution_capability="migration_required", root_budget_id=task_id,
+                 budget=plan.envelope.budget, entries=[], children=[], quality_status="pending")
+            return
+        snapshot = execution.status(plan)
+        children = execution.children(plan)
+        pending = []
+        if snapshot.child is not None and request.output_mode != "parse":
+            pending = _editing_view(instance, snapshot.child)["pending_approvals"]
+        elif snapshot.state == "planned":
+            pending = [{"task_id": task_id, "plan_fingerprint": plan.fingerprint}]
+        current = (local_projection(instance, task_id) if local
+                   else asyncio.run(temporal.inspect(task_id, load_config())))
+        current = current.model_dump(mode="json") if isinstance(current, PipelineRun) else current
+        emit("inspect", snapshot.state, task_id=task_id, plan_fingerprint=plan.fingerprint,
+             status_source="batch_ledger", source="local_projection" if local else "live", stale=local,
+             task=current, root_budget_id=task_id, budget=plan.envelope.budget,
+             usage=instance.ledger.usage(task_id, include_children=True), entries=snapshot.entries,
+             children=children, pending_approvals=pending, stop_reason=snapshot.reason,
+             quality_status="pending", request_profile=_vlm_request_profile(instance, request))
+        return
     editing = request.output_mode != "parse"
     current = (
         local_projection(instance, task_id)

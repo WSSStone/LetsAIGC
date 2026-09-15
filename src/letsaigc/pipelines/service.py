@@ -151,7 +151,7 @@ class PipelineService:
         if fingerprint != plan.fingerprint:
             raise PipelineError("plan_changed", "Plan fingerprint does not match the persisted task")
         validate_registration(plan)
-        if plan.workflow_type == "ui_analysis" and verify_inputs:
+        if plan.workflow_type in {"ui_analysis", "ui_batch"} and verify_inputs:
             from .registry import validate_ui_registration
 
             validate_ui_registration(plan, self.artifacts)
@@ -355,9 +355,14 @@ class PipelineService:
             )
             for name, value in {"request": request, "policy": policy, "evaluation": UIEvaluationPolicy()}.items()
         }
+        count = len(request.input.inputs) if request.input.kind == "manual" else request.input.max_images
+        if request.input.kind == "manual" and request.input.metadata_ref:
+            from ..ui_providers.intake import frozen_manifest
+
+            count = len(frozen_manifest(self.artifacts, request.input, task_id).entries)
         plan = PipelinePlan(
             task_id=task_id,
-            workflow_type="ui_analysis",
+            workflow_type="ui_analysis" if count == 1 else "ui_batch",
             parameters=params,
             inputs=request.references(),
             envelope=ApprovalEnvelope(
@@ -430,12 +435,17 @@ class PipelineService:
             from ..schemas.ui_provider import UIInputManifest
             from ..ui_analysis.selection import source_id_for_ref
 
+            owner_task_id = self.ledger._editing_owner_id(db, parent_task_id)
+            self.ledger._check_analysis_active(db, owner_task_id)
+            owner_plan = PipelinePlan.model_validate_json(db.execute(
+                "SELECT plan FROM tasks WHERE task_id=?", (owner_task_id,)
+            ).fetchone()["plan"])
             root_request = UIAnalysisRequest.model_validate_json(self.artifacts.read(
-                ArtifactRef.model_validate(root_plan.parameters["request_ref"])
+                ArtifactRef.model_validate(owner_plan.parameters["request_ref"])
             ))
             if purpose in {"reread_text", "review_region"} and not root_request.allow_local_revision:
                 raise PipelineError("revision_not_allowed")
-            originals = [ref for ref in root_plan.inputs if ref.role == "original"]
+            originals = [ref for ref in owner_plan.inputs if ref.role == "original"]
             source_hashes = {ref.artifact_id: ref.sha256 for ref in originals}
             source_hashes.update({source_id_for_ref(ref, index): ref.sha256
                                   for index, ref in enumerate(originals, 1)})
@@ -444,14 +454,14 @@ class PipelineService:
                 manifests.append(root_request.input.metadata_ref)
             if root_request.input.kind == "search":
                 for row in db.execute("SELECT result FROM operations WHERE task_id=? AND state='succeeded'",
-                                      (root_task_id,)).fetchall():
+                                      (owner_task_id,)).fetchall():
                     manifests.extend(ArtifactRef.model_validate(ref) for ref in json.loads(row["result"]).get(
                         "artifacts", []) if ref.get("role") == "input_manifest")
             for manifest_ref in manifests:
                 manifest = UIInputManifest.model_validate_json(self.artifacts.read(manifest_ref))
                 for source in manifest.sources:
                     ref = source.original_ref
-                    if ref.task_id != root_task_id or (root_request.input.kind == "manual" and ref not in originals):
+                    if ref.task_id != owner_task_id or (root_request.input.kind == "manual" and ref not in originals):
                         raise PipelineError("source_scope")
                     self.artifacts.read(ref)
                     source_hashes[source.source_id] = ref.sha256
@@ -482,7 +492,7 @@ class PipelineService:
             self.artifacts,
             selection_ref,
             source_ids=source_ids,
-            root_task_id=root_task_id,
+            root_task_id=owner_task_id,
             source_hashes=source_hashes,
         )
         selection_bytes = self.artifacts.read(selection_ref)
@@ -516,7 +526,7 @@ class PipelineService:
         if not within_parent_budget:
             from ..schemas.ui_cloud import CloudImageRetry
 
-            if purpose != "cloud_inpaint" or not child_request.get("retry") or parent_task_id != root_task_id:
+            if purpose != "cloud_inpaint" or not child_request.get("retry") or parent_task_id != owner_task_id:
                 raise PipelineError("budget_scope")
             grant = CloudImageRetry.model_validate(child_request["retry"])
             if not budget_subset(child_budget, grant.budget_after):
@@ -564,7 +574,8 @@ class PipelineService:
             request_ref=request_ref,
             selection_ref=local_selection,
             selection_revision=selection_revision,
-            source_chain=source_ids,
+            source_chain=([source_hashes[source] for source in source_ids]
+                          if owner_task_id != root_task_id else source_ids),
             # Selection revisions remain on one source/edit chain; changing
             # the selection must consume the root revision budget rather than
             # resetting it through a new chain key.
@@ -597,7 +608,7 @@ class PipelineService:
             from ..ui_analysis.editing import EditingExecution
             from ..ui_analysis.selection import selection_catalog
 
-            root_id = plan.parameters["root_task_id"]
+            root_id = EditingExecution(self).child_root(plan)
             if selection_catalog(self.artifacts, root_id) is not None:
                 EditingExecution(self).validate_current(plan)
             request = None
@@ -612,7 +623,8 @@ class PipelineService:
                     raise PipelineError("revision_not_allowed")
         else:
             request = validate_ui_registration(plan, self.artifacts)
-            if request.output_mode != "parse" and "layout_ref" in request.model_bindings:
+            if (plan.workflow_type == "ui_analysis" and request.output_mode != "parse"
+                    and "layout_ref" in request.model_bindings):
                 raise PipelineError("prohibited_capability", "Frozen layout reuse cannot rerun analysis")
         if binding.outputs:
             raise PipelineError("invalid_step", "A submission cannot supply its own result references")

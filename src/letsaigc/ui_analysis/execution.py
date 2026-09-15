@@ -196,14 +196,14 @@ class UIExecution:
                     plan.task_id, key, tuple(plan.envelope.allowed_capabilities), self.store, self.service.ledger
                 ),
             )
-            if result.status != "ready":
+            if result.status != "ready" and not (plan.workflow_type == "ui_batch" and result.status == "partial"):
                 raise PipelineError("invalid_input")
             return [put("sources", result)]
         if binding.capability == "ui.search":
             from ..ui_providers.search import SearchAcquisition
 
             result = SearchAcquisition(self.service).result(plan)
-            if result.status != "ready":
+            if result.status != "ready" and not (plan.workflow_type == "ui_batch" and result.status == "partial"):
                 raise PipelineError("input_resupply_required")
             return [put("sources", result)]
         if binding.capability == "ui.normalize":

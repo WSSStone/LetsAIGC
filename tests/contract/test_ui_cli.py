@@ -141,4 +141,7 @@ def test_search_plan_freezes_both_providers_without_probes(tmp_path, monkeypatch
             "configs/ui-analysis/budget-example.yaml",
         ],
     )
-    assert rejected.exit_code == 3
+    assert rejected.exit_code == 0, rejected.stdout
+    batch = service.ledger.plan(json.loads(rejected.stdout)["task_id"])
+    assert batch.workflow_type == "ui_batch"
+    assert service.ledger.list_operations(batch.task_id) == []

@@ -161,8 +161,9 @@ class UIEditingActivities(UIActivities):
             self.service.ledger.request_cancel(root.task_id)
             confirmed = self.execution.cancel(root)
             with self.service.ledger.transaction() as db:
+                budget_root = self.service.ledger._root_task_id(db, root.task_id)
                 rows = db.execute(
-                    "SELECT task_id FROM ui_child_bindings WHERE root_task_id=?", (root.task_id,)
+                    "SELECT task_id FROM ui_child_bindings WHERE root_task_id=?", (budget_root,)
                 ).fetchall()
             for row in rows:
                 confirmed = self.execution.cancel(self.service.ledger.plan(row["task_id"])) and confirmed

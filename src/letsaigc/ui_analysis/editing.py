@@ -456,9 +456,10 @@ def _children(service, root_task_id: str) -> list[tuple[PipelinePlan, dict[str, 
     with service.ledger.transaction() as db:
         rows = db.execute(
             "SELECT task_id, purpose, selection_hash, selection_revision, source_ids, status "
-            "FROM ui_child_bindings WHERE root_task_id=? ORDER BY rowid",
-            (root_task_id,),
+            "FROM ui_child_bindings WHERE root_task_id=? AND purpose<>'analysis' ORDER BY rowid",
+            (service.ledger._root_task_id(db, root_task_id),),
         ).fetchall()
+        rows = [row for row in rows if service.ledger._editing_owner_id(db, row["task_id"]) == root_task_id]
     return [(service.ledger.plan(row["task_id"]), dict(row)) for row in rows]
 
 
@@ -619,11 +620,12 @@ class EditingExecution:
                 row = db.execute(
                     "SELECT root_task_id FROM ui_child_bindings WHERE task_id=?", (plan.task_id,)
                 ).fetchone()
+                owner = self.service.ledger._editing_owner_id(db, plan.task_id) if row else None
         except Exception as exc:
             raise PipelineError("unknown_child") from exc
         if row is None:
             raise PipelineError("unknown_child")
-        return row["root_task_id"]
+        return owner
 
     def binding(self, child: PipelinePlan | str, *, revision: int = 0, source_id: str | None = None) -> UIStepBinding:
         plan = _as_plan(self.service, child)

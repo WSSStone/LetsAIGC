@@ -7,14 +7,14 @@ openai 仅允许 reconstruct 与已确认 reviewed-task/成功 automatic-task �
 `editing.image_files` 展示可打开的 PNG 路径。两阶段独立使用已有 `ui execute CHILD --approve FINGERPRINT`，
 不新增绕过批准入口。见[操作指南](../../../docs/game-ui-analysis.md)与[T030 MVP 范围](../../../docs/t030-mvp-scope.md)。
 
-状态：当前分支已接通 `letsaigc ui` 的单图 parse 命令及两家搜索适配，离线验证通过，T010/T017/T018真实预览已验收。Root `--json` 位于 `ui` 之前。下表仍包含后续编辑/批次合同：review 已注册；select、revise 尚未注册，编辑和批次 plan 返回 capability_not_ready；不静默改模式或截断输入。实际使用与就绪条件见[开发使用指南](../../../docs/game-ui-analysis.md)，验收状态以[任务记录](../tasks.md)为准。
+状态：当前分支已接通 `letsaigc ui` 的单图 parse 命令及两家搜索适配，离线验证通过，T010/T017/T018真实预览已验收。Root `--json` 位于 `ui` 之前。review/select/revise 与单图编辑已注册；T031–T033 已接通顺序批次，执行要求 v5 账本，T034 真实批次验收待完成；不静默改模式或截断输入。实际使用与就绪条件见[开发使用指南](../../../docs/game-ui-analysis.md)，验收状态以[任务记录](../tasks.md)为准。
 
 ## 命令
 
 | 命令 | 参数 | 行为 |
 |---|---|---|
 | `ui import` | `--image SOURCE` 可重复；或 `--artifact REF_FILE` 可重复；`--metadata FILE` 可选 | 可信本地输入/HTTPS获取，最多10项；保存快照和来源，返回manifest ref，不执行模型 |
-| `ui plan` | `--input-manifest REF_FILE` 与 `--query TEXT` 二选一；`--max-images N` 仅搜索可用；`--selection FILE` 高级选项；`--mode parse|decompose|reconstruct`；`--target scene_background|map_surface`；`--budget FILE` 必填；`--policy FILE` 可选；`--language auto|zh|en`；`--text-assets`、`--remove-text`、`--allow-local-revision` 可选 | 确定性验证/登记不可变计划，不搜索、不调用VLM/GPU；reconstruct必须target |
+| `ui plan` | `--input-manifest REF_FILE` 与 `--query TEXT` 二选一；`--max-images N` 仅搜索可用；`--batch-failure-policy continue_independent|stop_on_error` 默认前者；`--selection FILE` 高级选项；`--mode parse|decompose|reconstruct`；`--target scene_background|map_surface`；`--budget FILE` 必填；`--policy FILE` 可选；`--language auto|zh|en`；`--text-assets`、`--remove-text`、`--allow-local-revision` 可选 | 确定性验证/登记不可变计划，不搜索、不调用VLM/GPU；reconstruct必须target |
 | `ui select TASK_ID` | `--candidate ID` 与 `--selection FILE` 必选其一、互斥 | 登记候选或高级覆盖，形成具体待批准子计划；不调用模型或GPU，不视为批准 |
 | `ui execute TASK_ID` | `--approve FINGERPRINT` 必填 | 本地记录精确回执并启动或唤醒相应任务；对GPU子计划同时确认显示的范围并批准该操作 |
 | `ui review TASK_ID`（T046新增） | 默认打开任务作用域本地页面；`--open/--no-open`控制浏览器启动，JSON不输出令牌 | 仅操作既有解析的人工草稿/确认版本，零模型、零GPU、无批准权；详见[校正合同](review.md) |
@@ -33,7 +33,7 @@ openai 仅允许 reconstruct 与已确认 reviewed-task/成功 automatic-task �
 
 最终手动按去重前的输入条目数选路：1项为ui_analysis，2—10项为ui_batch，拒绝--max-images，不能截断用户选择。搜索的--max-images默认1、范围1—10，是根任务最多选图数而非成功数量保证；1走ui_analysis，2—10走ui_batch。该值在联网前冻结，不因实际结果或恢复改变Workflow。每查询选图/下载/候选上限和根搜索次数共同约束；取得所需图片即停止后续供给。
 
-首版只接受上述单图parse计划，批次与编辑未就绪时在plan拒绝；import可以登记多项，但登记成功不表示已有批次执行能力。ui_analysis的acquisition支持manual/search。批次阶段由ui_batch父级获取一次，分析child使用登记后的manual引用，保留search来源与已消耗计数，不重搜。
+当前接受单图和顺序批次计划；import/plan 不执行模型。批次及编辑执行要求账本 v5，旧版返回 migration_required；不隐式迁移。ui_analysis的acquisition支持manual/search。批次阶段由ui_batch父级获取一次，分析child使用登记后的manual引用，保留search来源与已消耗计数，不重搜。
 
 ## 默认编辑流程：自动提案，直接批准
 

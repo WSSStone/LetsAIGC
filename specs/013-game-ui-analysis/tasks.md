@@ -2,7 +2,7 @@
 
 **Feature**: 013-game-ui-analysis | **Date**: 2026-09-04 | **Branch**: dev-game-ui  
 **Baseline**: `7b91c34deb23064aaa6b492ce105956a59b47b71`  
-**状态（2026-09-15）**：50项中T001—T030与T043—T050共38项已完成；其余12项仍待实施。11项[LIVE]中T010、T017、T018、T024、T027、T030、T049已验收，其余4项未验收。T030按用户确认的单图MVP范围完成，原扩展矩阵未标记通过。所有环境命令继续使用conda run；历史mamba阻断、旧失败与unknown证据保留。
+**状态（2026-09-15）**：50项中T001—T033与T043—T050共41项已完成；其余9项仍待实施。11项[LIVE]中T010、T017、T018、T024、T027、T030、T049已验收，其余4项未验收。T030按用户确认的单图MVP范围完成，原扩展矩阵未标记通过。所有环境命令继续使用conda run；历史mamba阻断、旧失败与unknown证据保留。
 
 ## 执行约定
 
@@ -85,9 +85,9 @@
 
 每条输入可追踪，父级共享预算和取消；不复制单图执行引擎。
 
-- [ ] T031 [US5] 先写两种来源顺序批次的差异合同：10项/第11拒绝、精确重复映射/近似只提示、两种失败策略、单活动child、父取消竞争、共同次数和Continue-As-New边界。通用operation/费用故障复用T003/T019，不再次复制全矩阵。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_batch.py`、`C:/Programs/LetsAIGC/tests/contract/test_ui_batch_cli.py`。（依赖：T030）
-- [ ] T032 [US5] 实现ui_batch父级一次供给后顺序单图child，登记父子scope、根费用与来源映射；GPU仍各自具体批准。取消先关闭根门禁，再REQUEST_CANCEL并保留未决归属；Continue-As-New只在无活动child安全边界。 文件：`C:/Programs/LetsAIGC/src/letsaigc/pipelines/registry.py`、`C:/Programs/LetsAIGC/src/letsaigc/execution/temporal/ui_workflow.py`、`C:/Programs/LetsAIGC/src/letsaigc/execution/temporal/ui_activities.py`、`C:/Programs/LetsAIGC/src/letsaigc/execution/temporal/worker.py`。（依赖：T031）
-- [ ] T033 [US5] 接入多项import/plan和max_images≥2，按原始手动条目数/搜索上限选路；完善父子inspect、部分结果和候选/批准等待，复用manifest来源谱系与MLflow派生投影。先写对应输出/谱系合同再实现，正式批次能力不改变旧Agent输入限制。 文件：`C:/Programs/LetsAIGC/tests/contract/test_ui_batch_evidence.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/cli.py`、`C:/Programs/LetsAIGC/src/letsaigc/tracking/manifest.py`、`C:/Programs/LetsAIGC/docs/game-ui-analysis.md`。（依赖：T032）
+- [X] T031 [US5] 先写两种来源顺序批次的差异合同：10项/第11拒绝、精确重复映射/近似只提示、两种失败策略、单活动child、父取消竞争、共同次数和Continue-As-New边界。通用operation/费用故障复用T003/T019，不再次复制全矩阵。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_batch.py`、`C:/Programs/LetsAIGC/tests/contract/test_ui_batch_cli.py`。（依赖：T030）
+- [X] T032 [US5] 实现ui_batch父级一次供给后顺序单图child，登记父子scope、根费用与来源映射；GPU仍各自具体批准。取消先关闭根门禁，再REQUEST_CANCEL并保留未决归属；Continue-As-New只在无活动child安全边界。 文件：`C:/Programs/LetsAIGC/src/letsaigc/pipelines/registry.py`、`C:/Programs/LetsAIGC/src/letsaigc/execution/temporal/ui_workflow.py`、`C:/Programs/LetsAIGC/src/letsaigc/execution/temporal/ui_activities.py`、`C:/Programs/LetsAIGC/src/letsaigc/execution/temporal/worker.py`。（依赖：T031）
+- [X] T033 [US5] 接入多项import/plan和max_images≥2，按原始手动条目数/搜索上限选路；完善父子inspect、部分结果和候选/批准等待，复用manifest来源谱系与MLflow派生投影。先写对应输出/谱系合同再实现，正式批次能力不改变旧Agent输入限制。 文件：`C:/Programs/LetsAIGC/tests/contract/test_ui_batch_evidence.py`、`C:/Programs/LetsAIGC/src/letsaigc/ui_analysis/cli.py`、`C:/Programs/LetsAIGC/src/letsaigc/tracking/manifest.py`、`C:/Programs/LetsAIGC/docs/game-ui-analysis.md`。（依赖：T032）
 - [ ] T034 [US5] [LIVE] 有界验证手动与搜索两种来源的真实顺序批次及获批子生成，保留10项成功/失败/等待/未处理混合场景及真实/替身属性；取消无孤立提交，输入至结果映射齐全。复用已有单图与GPU证据，仅补批次差异。 文件：`C:/Programs/LetsAIGC/tests/integration/test_ui_batch_runtime.py`、`C:/Programs/LetsAIGC/.local/validation/ui-analysis/batch-runtime.json`。（依赖：T033）
 
 ## Phase 6：正式质量与完整验收（含US6）
@@ -758,3 +758,24 @@ T029已勾选，累计37/50，LIVE仍6/11。使用gpt-5.6-luna/xhigh子代理实
 最终完整回归684 passed、5 skipped、2条既有Pillow告警（84.45秒），ruff及git diff --check通过。包含真实本地Temporal恢复测试和已有LIVE证据只读核对；模型均为替身，不是T030真实效果验收。首轮683 passed日志保留。证据位于.local/validation/ui-analysis/t029-2026-09-07/，实际账本仍v4，14张表计数/hash与T028前一致；未迁移、未新增真实搜索/OCR/VLM/GPU调用、未使用内置浏览器。
 
 下一步T030：本机manual/review/VLM元数据就绪，OCR/Temporal服务已停，SAM及Comfy CUDA模型/服务未就绪。须先把本轮代码提交推送供Windows同步，在Windows核对现有环境和来源后准备新的真实编辑计划；保留T024结果及Windows本地证据，不重复T024、不复用旧批准。现有Mac v4账本不得隐式迁移。真实局部模型复核、商业截图拆解、两种背景补图、受理后恢复及24例正式质量仍未验收；T031及以后不提前实施。本轮实现尚未提交推送。
+
+
+## 2026-09-15：T031–T033 顺序批次实现与离线验证
+
+用户调用 speckit-implement 从 T031 开始，本轮按 T031→T032→T033 完成合同、实现、CLI 与证据接线。
+requirements checklist 16/16 通过；本机缺少 pwsh，执行等价的只读前置检查，未修改开发脚本。
+沿用现有 dev-game-ui 工作区，不创建新分支、不提交。T034 为下一顺序任务，保持未勾选。
+
+实现边界：手动按原始条目数选路、搜索冻结 max_images，2–10 项使用 ui_batch；一次有界供给、单活动单图 child、精确重复映射和近似提示。原始失败顺序与两种策略保留全部 entries。来源、预算和次数按根共享；GPU 子请求仍具体批准，图片的编辑归属独立于批次预算根。多源显式 selection 按图片拆分，禁止跨图复用单图固定布局。
+
+取消先关根门禁并清理全层后代；未知结果保留费用及子归属，父工作流等待对账，子确认等待有界。prepare/complete 与终态 checkpoint 的原生取消竞争均有回归。Continue-As-New 只在单图已结算且 handlers 完成后执行。每图继承冻结的 active_seconds 上限。产物索引从该图片真实后代的已结算操作及投影重建，拒绝兄弟图片引用；manifest/MLflow 派生父子谱系，质量仍 pending。
+
+验证均使用临时 v5 账本、固定响应与替身模型，包含 SDK sandbox/本地 transport 和真实本地 SQLite MLflow；不是 Temporal 服务端历史重放或 T034 真实批次验收。
+
+- 完整回归：**890 passed、26 skipped、2 warnings，55.78 秒**。
+- 最后运行时间限制传递修正后的工作流/取消/谱系回归：**27 passed，12.47 秒**。
+- `conda run --no-capture-output -n letsaigc-core ruff check .` 与 `git diff --check` 通过。
+- 全量回归使用 conda 环境 FFmpeg 和已安装 Node 22.23.1；系统 Homebrew FFmpeg 缺字幕滤镜，Homebrew Node 动态库不可用。未安装或改变环境。回环测试在获准的沙箱外运行，外部模型/搜索/GPU 调用为 0。
+- 本地证据：`.local/validation/ui-analysis/t031-2026-09-15/final-pytest.log`、`final-boundaries.log`、`acceptance.json`。测试跳过为未开启的 live/runtime 与平台限定项，不能算验收通过。
+
+实际 Mac 账本只读确认仍为 v4，未进行迁移。T034 仍需两种来源的固定真实批次、现有服务/模型、精确批准和预算，以及混合结果/获批子生成与取消差异证据；本轮没有消费这些批准，也不扩大 T030 的单图 MVP 或正式质量结论。

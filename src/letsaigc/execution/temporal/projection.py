@@ -12,7 +12,7 @@ from ...pipelines.errors import PipelineError
 from ...pipelines.service import PipelineService
 from ...schemas import RunManifest
 from ...schemas.pipeline import PipelineRun, canonical_json, digest, validate_payload
-from ...tracking.manifest import add_output, create_manifest
+from ...tracking.manifest import add_output, create_manifest, ui_lineage
 
 
 def atomic_json(path: Path, payload: str) -> None:
@@ -31,6 +31,8 @@ def atomic_json(path: Path, payload: str) -> None:
 def project(service: PipelineService, run: PipelineRun) -> None:
     validate_payload(run)
     plan = service.checked_plan(run.task_id, run.plan_fingerprint, verify_inputs=False)
+    lineage = ui_lineage(service, run.task_id)
+    parent_plan = service.ledger.plan(lineage["parent_task_id"]) if lineage else None
     path = service.root / "tasks" / run.task_id / "manifest.json"
     # Also serializes MLflow registration among local workers. Crash after the remote
     # registration is recovered by its stable logical-run tag, before scheduling resumes.
@@ -59,6 +61,8 @@ def project(service: PipelineService, run: PipelineRun) -> None:
             "planned": "created",
             "awaiting_approval": "validated",
         }.get(run.state.value, "running")
+        if parent_plan:
+            manifest.parent_run_id = "pipeline-" + digest(parent_plan.task_id)[:32]
         manifest.outputs = []
         for ref in run.artifacts:
             service.artifacts.read(ref)
@@ -80,19 +84,38 @@ def project(service: PipelineService, run: PipelineRun) -> None:
             "state": run.state.value,
             "operations": [operation.model_dump(mode="json") for operation in operations],
         }
+        if lineage:
+            manifest.tracking["temporal"]["lineage"] = lineage
         manifest.governance.validations.update(contract=True, hashes=True, provenance=True)
         if service.mlflow_enabled and run.state.value in {"succeeded", "failed", "cancelled", "rejected"}:
             from ...tracking.mlflow_store import log_manifest
 
+            # Child completion precedes the parent's terminal projection. Create
+            # its stable tracking identity now, without fabricating workflow state.
+            parent_tracking_id = None
+            if parent_plan:
+                parent_tracking_id = log_manifest(
+                    manifest.parent_run_id,
+                    {"task_id": parent_plan.task_id, "plan_fingerprint": parent_plan.fingerprint},
+                    {}, idempotency_key=manifest.parent_run_id,
+                )
+            charged_operations = operations
+            if plan.workflow_type == "ui_batch":
+                charged_operations = [service.ledger._record(row) for row in db.execute(
+                    "SELECT * FROM operations WHERE task_id=? OR task_id IN "
+                    "(SELECT task_id FROM ui_child_bindings WHERE root_task_id=?)",
+                    (plan.task_id, plan.task_id),
+                ).fetchall()]
             atomic_json(path, manifest.model_dump_json(indent=2))
             tracking_id = log_manifest(
                 manifest.run_id,
                 {"task_id": run.task_id, "plan_fingerprint": plan.fingerprint},
                 {
-                    "cost_usd": sum(op.actual.cost_usd for op in operations),
-                    "gpu_minutes": sum(op.actual.gpu_minutes for op in operations),
+                    "cost_usd": sum(op.actual.cost_usd for op in charged_operations),
+                    "gpu_minutes": sum(op.actual.gpu_minutes for op in charged_operations),
                 },
                 artifacts=[path],
+                parent_run_id=parent_tracking_id,
                 idempotency_key=manifest.run_id,
             )
             if tracking_id:

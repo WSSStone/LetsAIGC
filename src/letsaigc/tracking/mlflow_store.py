@@ -73,6 +73,9 @@ def log_manifest(
     else:
         start_arguments = {"run_name": run_name, "tags": tags}
     with mlflow.start_run(**start_arguments) as run:
+        # start_run ignores creation tags when resuming by ID. Reapply lineage
+        # and logical identity after an interrupted or older local projection.
+        mlflow.set_tags(tags)
         mlflow.log_params({key: str(value) for key, value in parameters.items()})
         if metrics:
             mlflow.log_metrics(metrics)

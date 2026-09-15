@@ -2,7 +2,7 @@
 
 2026-09-14：T030 当前入口、云端补图命令与精简验收见[操作指南](../../docs/game-ui-analysis.md)和[MVP 范围](../../docs/t030-mvp-scope.md)。以下较早阶段状态保留作历史背景，不代表新增云端入口已通过真实验收。
 
-当前手动单图与SerpApi/Tavily双后端搜索已通过真实预览验收，含三例手动解析和一次OCR中断恢复；可用预览已交付，完整质量验收待完成。可用命令及本机准备条件见[开发使用指南](../../docs/game-ui-analysis.md)。本页保留完整实施后的使用目标：拆解补图、批次和正式质量验收部分尚未开放。正式参数见[CLI契约](contracts/cli.md)，实际完成状态见[任务记录](tasks.md)。
+当前手动单图与SerpApi/Tavily双后端搜索已通过真实预览验收，含三例手动解析和一次OCR中断恢复；可用预览已交付，完整质量验收待完成。可用命令及本机准备条件见[开发使用指南](../../docs/game-ui-analysis.md)。单图编辑范围见 T030 MVP；顺序批次 T031–T033 已接入，T034 真实批次与正式质量验收待完成。正式参数见[CLI契约](contracts/cli.md)，实际完成状态见[任务记录](tasks.md)。
 
 
 ## 人工校正预览（T043—T050）
@@ -194,9 +194,9 @@ conda run --no-capture-output -n letsaigc-core letsaigc ui select $taskId --sele
 
 替换范围使旧未执行子计划的批准失效；存在已提交/未知GPU工作先取消或对账，预算与次数不清零。最终mask为零区域与canonical逐像素相同，结果分别标注原始、估计或generated。编译在具体获批执行的准备阶段进行，通过子manifest路径/hash检查，无独立只编译CLI。局部修订用枚举请求文件交给ui revise，改变mask/model/recipe要新具体批准。
 
-## 实施后：顺序批次与正式验收
+## 顺序批次与后续正式验收
 
-首版对多图/编辑未就绪请求明确拒绝，不静默转成单图。批次就绪后，手动import重复--image可选1—10项，去重前数量决定单图或批次，不接受搜索--max-images；精确重复保留每条映射，近似重复只提示。搜索显式--max-images 2—10才选ui_batch，由父级获取一次、顺序解析，child不重搜。普通失败按策略显示partial，批准/预算/未知结果仍遵守门禁。
+T031–T033 已接入，执行要求账本 v5；现有 Mac v4 不会自动迁移。手动import重复--image可选1—10项，去重前数量决定单图或批次，不接受搜索--max-images；精确重复保留每条映射，近似重复只提示。搜索显式--max-images 2—10才选ui_batch，由父级获取一次、顺序解析，child不重搜。普通失败按 `--batch-failure-policy continue_independent|stop_on_error` 显示 partial，批准/预算/未知结果仍遵守门禁。`inspect` 返回全部 entries、child 输出索引、共享 usage 与待批准项。规划示例见[批次使用说明](../../docs/game-ui-analysis.md#t031t033顺序批次2026-09-15)。T034 的真实服务运行和 GPU 子生成尚未验收。
 
 随后补齐至少24例、开发16/评估8和8个已知背景（4/4）；首版三例始终在开发集。在开发集冻结阈值后独立评估，留出集不用于调整门槛。M-U1—M-U3和U-V01—U-V14全量通过才宣布完整交付。
 
