@@ -117,7 +117,11 @@ def test_local_vlm_adapter_reads_child_scoped_policy_and_review_context(reviewed
         return {"response_id": "fake-response", "state": "succeeded", "actual": Cost().model_dump(mode="json")}
 
     monkeypatch.setattr(ui_analyzer.UIAnalyzer, "analyze", analyze)
-    adapter = ui_analyzer.UIAnalysisBackend(service.ledger, service.artifacts)
+    from types import SimpleNamespace
+
+    adapter = ui_analyzer.UIAnalysisBackend(service.ledger, service.artifacts, client=SimpleNamespace(
+        responses=SimpleNamespace(with_streaming_response=object(), with_raw_response=object()),
+    ))
     binding = EditingExecution(service).binding(child)
     submission = adapter.submit("fake-local-vlm", {"binding": binding.model_dump(mode="json")})
     assert submission.request_id == "fake-response"

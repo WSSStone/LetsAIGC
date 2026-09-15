@@ -302,7 +302,21 @@ def test_native_backend_binds_only_trusted_upload_handles_to_copied_dynamic_enum
     assert bound["LoadImage"]["input"]["required"]["image"][0] == handles
 
 
-def test_approved_noop_submit_collect_release_uses_native_backend(tmp_path: Path):
+def _offline_comfy_checkout_probe(monkeypatch):
+    import subprocess
+
+    run = subprocess.run
+
+    def offline_run(args, **kwargs):
+        if args == ["git", "rev-parse", "HEAD"]:
+            return SimpleNamespace(stdout="offline-comfy-fixture", returncode=0)
+        return run(args, **kwargs)
+
+    monkeypatch.setattr("letsaigc.backends.comfy.subprocess", SimpleNamespace(run=offline_run))
+
+
+def test_approved_noop_submit_collect_release_uses_native_backend(tmp_path: Path, monkeypatch):
+    _offline_comfy_checkout_probe(monkeypatch)
     backend, _masked, _artifacts, _plan = _backend(tmp_path, zero_mask=True)
     binding = backend.ledger.ui_binding("op-inpaint")
     prepared = backend.prepare("op-inpaint", {"binding": binding.model_dump(mode="json")})
@@ -320,7 +334,8 @@ def test_approved_noop_submit_collect_release_uses_native_backend(tmp_path: Path
     assert release["noop"] is True
 
 
-def test_submit_rejects_prepared_graph_override(tmp_path: Path):
+def test_submit_rejects_prepared_graph_override(tmp_path: Path, monkeypatch):
+    _offline_comfy_checkout_probe(monkeypatch)
     backend, _masked, _artifacts, _plan = _backend(tmp_path, zero_mask=True)
     binding = backend.ledger.ui_binding("op-inpaint")
     prepared = backend.prepare("op-inpaint", {"binding": binding.model_dump(mode="json")})
@@ -474,11 +489,37 @@ def test_native_release_accepts_only_stable_bounded_runtime_residual(monkeypatch
     assert len(samples) >= 2
     assert result["released"] is True
     assert result["cuda_allocated_bytes"] == 9_568_256
-    assert result["model_cuda_allocated_bytes"] == 0
+    assert result["model_cuda_allocated_bytes"] is None
+    assert result["devices"][0]["model_cuda_allocated_bytes"] is None
     assert result["runtime_cuda_residual_bytes"] == 9_568_256
     assert result["release_basis"] == "stable_bounded_runtime_residual"
     assert result["stable_samples"] == 2
     assert result["devices"][0]["torch_vram_allocated"] == 9_568_256
+
+
+def test_native_release_requires_consecutive_bounded_samples(monkeypatch):
+    client = ComfyClient("http://127.0.0.1:8188", timeout=0.2)
+    monkeypatch.setattr(client, "queue", lambda: {"queue_running": [], "queue_pending": []})
+    samples = iter([9, 50, 9, 9])
+    observed = []
+
+    def stats():
+        active = next(samples)
+        observed.append(active)
+        return {
+            "system": {"comfyui_version": "0.34.2"},
+            "devices": [{"type": "cuda", "index": 0,
+                         "torch_vram_total": 64 * 1024**2,
+                         "torch_vram_free": (64 - active) * 1024**2}],
+        }
+
+    monkeypatch.setattr(client, "system_stats", stats)
+    monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: httpx.Response(
+        200, request=httpx.Request("POST", args[0]),
+    ))
+    result = client.release_models(timeout_seconds=0.2, poll_seconds=0)
+    assert observed == [9, 50, 9, 9]
+    assert result["stable_samples"] == 2
 
 
 def test_native_release_rejects_malformed_cuda_stats(monkeypatch):

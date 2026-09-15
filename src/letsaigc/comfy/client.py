@@ -192,7 +192,7 @@ class ComfyClient:
                     "torch_vram_total": total,
                     "torch_vram_free": free,
                     "torch_vram_allocated": active,
-                    "model_cuda_allocated_bytes": 0,
+                    "model_cuda_allocated_bytes": 0 if active == 0 else None,
                     "runtime_cuda_residual_bytes": active,
                 })
             active_total += active
@@ -200,20 +200,23 @@ class ComfyClient:
             "released": True,
             "comfyui_version": PINNED_COMFYUI_VERSION,
             "cuda_allocated_bytes": active_total,
-            "model_cuda_allocated_bytes": 0,
+            # Aggregate counters cannot distinguish model tensors from runtime
+            # workspaces when non-zero allocations remain.
+            "model_cuda_allocated_bytes": 0 if active_total == 0 else None,
             "runtime_cuda_residual_bytes": active_total,
             "runtime_residual_limit_bytes": runtime_residual_limit_bytes,
             "devices": proof_devices,
         }
 
     def release_models(self, *, timeout_seconds: float | None = None, poll_seconds: float = 0.1) -> dict[str, Any]:
-        """Unload native Comfy models and prove that CUDA allocations reached zero.
+        """Unload native Comfy models and check the CUDA release allowance.
 
         The pinned ``/free`` endpoint only sets asynchronous queue flags.  A
         successful HTTP response therefore does not release this operation's
         local-gpu lease; release succeeds only after an empty queue and
-        version-pinned CUDA counters report ``torch_vram_total -
-        torch_vram_free == 0``.
+        version-pinned CUDA counters report zero active allocation or two
+        consecutive identical samples within the runtime residual allowance.
+        Non-zero residuals do not independently prove zero model residency.
         """
         if type(poll_seconds) not in {int, float} or isinstance(poll_seconds, bool) or poll_seconds < 0:
             raise RuntimeExecutionError("ComfyUI release polling interval is invalid")
@@ -275,6 +278,8 @@ class ComfyClient:
                         }
                         break
                     stable_residual = signature
+                else:
+                    stable_residual = None
                 if time.monotonic() >= deadline:
                     raise
                 if poll_seconds:
